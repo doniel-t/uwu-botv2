@@ -1,4 +1,4 @@
-import DiscordJS, { ApplicationCommandManager, Intents, Interaction } from 'discord.js';
+import DiscordJS, { Intents, Interaction } from 'discord.js';
 import dotenv from 'dotenv';
 import { CommandInterface } from './src/utils/CommandInterface';
 import { CommandManager } from './src/utils/CommandManager';
