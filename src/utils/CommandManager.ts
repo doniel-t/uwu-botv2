@@ -1,48 +1,60 @@
 import { CommandInterface } from './CommandInterface';
-import { addCommand } from '../Commands/Add';
-import { askCommand } from '../Commands/Ask';
-import DiscordJS, { Intents, Interaction } from 'discord.js';
+import requireDir from 'require-dir';
+import { client } from '../index';
 
-export class CommandManager{
+export class CommandManager {
 
-    commands : CommandInterface[] = [];
+    commands: CommandInterface[] = [];
 
-    constructor(){
+    constructor() {
         this.loadAllCommands();
     }
 
     //loads all exported obj from command ts file
-    loadAllCommands() : void{
-        this.commands.push(addCommand);
-        this.commands.push(askCommand);
-    }
-
-    getAllCommands() : CommandInterface[]{
-        return this.commands;
-    }
-
-    getCommandByName(name : string) : CommandInterface | undefined{
-        return this.commands.find(command => command.name === name || command.shortcut === name);
-    }
-
-    registerCommands(commands : any) : void{
+    async loadAllCommands(): Promise<void> {
+        if (client.application == null) {
+            throw new Error("No client application found")
+        }
+        //@ts-ignore 2345
+        let dirs = { ...requireDir("../Commands", { noCache: true }), ...requireDir("../AdminCommands", { noCache: true }) };
+        for (let name in dirs) {
+            let command = dirs[name].getInstance();
+            if (command.shortcut) {
+                let sCommand = dirs[name].getInstance();
+                sCommand.name = sCommand.shortcut;
+                this.commands.push(sCommand);
+            }
+            this.commands.push(command);
+        }
 
         this.commands.forEach(command => {
             if(command.name == undefined) return;
             if(command.description == undefined) return;
             if(command.shortcut){
-                commands?.create({
+                client.application?.commands?.create({
                     name:command.shortcut,
                     description: command.description,
+                    //@ts-ignore 2322
                     options: command.options
                 });
             }
-            commands?.create({
+            client.application?.commands?.create({
                 name:command.name,
                 description: command.description,
+                //@ts-ignore 2322
                 options: command.options
             });
             
         });
+    }
+
+    getCommandByName(name: string): CommandInterface | undefined {
+        return this.commands.find(command => command.name === name || command.shortcut === name);
+    }
+
+    reloadCommands(): void {
+        this.commands = [];
+        client.application?.commands.cache.clear();
+        this.loadAllCommands();
     }
 }

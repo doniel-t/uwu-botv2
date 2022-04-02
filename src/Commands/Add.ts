@@ -1,24 +1,30 @@
 import DiscordJS, { CacheType, CommandInteraction } from 'discord.js';
 import { CommandInterface } from '../utils/CommandInterface';
 
-class Add implements CommandInterface {
+class Add extends CommandInterface {
     name = 'add';
-    shortcut = "";
     description = 'adds two numbers XD';
     options = [
         {
             name: 'number1',
-            description: 'First Number to add',
+            description: 'First number to add',
             required: true,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.NUMBER,
         },
         {
             name: 'number2',
-            description: 'Second Number to add',
+            description: 'Second number to add',
             required: true,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.NUMBER,
         }
     ]
+
+    reply(interaction: CommandInteraction<CacheType>): void {
+        interaction.reply(
+            {
+                content: this.getContent(interaction)
+            });
+    }
 
     //returns the string response from the command
     getContent(interaction: CommandInteraction<CacheType>): string {
@@ -28,13 +34,6 @@ class Add implements CommandInterface {
         
         return `sum: ${firstNumber! + secondNumber!}`;
     }
-
-
-    reply(interaction: CommandInteraction<CacheType>): void {
-        interaction.reply(
-            {
-                content: this.getContent(interaction)
-            });
-    }
 }
-export const addCommand = new Add();
+
+export function getInstance() {return new Add()};
