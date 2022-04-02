@@ -29,7 +29,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         return;
     }
     if ('isAdmin' in command) {
-        if (!isAdmin(interaction.user.id, interaction.guildId)) {
+        if (!isAdmin(interaction)) {
             interaction.reply({
                 content: 'You are not an admin!'
             });

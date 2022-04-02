@@ -1,20 +1,22 @@
-export function isAdmin(userId:string,guildId:string | null) {
-    let isDev = Devs.includes(userId);
+import { GuildMember, Interaction } from "discord.js";
+
+export function isAdmin(interaction : Interaction) {
+    let isDev = DEVS.includes(interaction.user.id);
     if (isDev)
         return true;
 
-    if (guildId !== null) 
-        return isAdminInServer(userId,guildId);
+    if (interaction.guildId !== null) 
+        return isAdminInServer(interaction);
     else
         return false;
 }
 
-function isAdminInServer(userId:string,guildId:string) {
-    //TODO: check if user is admin
-    return false;
+function isAdminInServer(interaction : Interaction) {
+    const member = interaction.member as GuildMember;
+    return member.permissions.has('ADMINISTRATOR');
 }
 
-const Devs = [ //DiscordIDs
+const DEVS = [ //DiscordIDs
     '270929192399536138', //ackhack
     '222398053703876628', //Daniel
     '222757474418032641', //Lars
