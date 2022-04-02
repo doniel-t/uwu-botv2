@@ -3,6 +3,7 @@ import { CommandInterface } from '../utils/CommandInterface';
 
 class Add implements CommandInterface {
     name = 'add';
+    shortcut = "";
     description = 'adds two numbers XD';
     options = [
         {

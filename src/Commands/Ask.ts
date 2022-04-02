@@ -3,6 +3,7 @@ import DiscordJS, { CacheType, CommandInteraction } from "discord.js";
 
 class Ask implements CommandInterface {
     name: string = "ask";
+    shortcut = 'a';
     description: string = "Ask a question";
     options: any = [
     {
@@ -124,9 +125,9 @@ class Ask implements CommandInterface {
     }
 
     reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
-    interaction.reply({
-        content: this.getContent(interaction),
-    });
+        interaction.reply({
+            content: this.getContent(interaction),
+        });
     }
 }
 

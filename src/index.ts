@@ -1,7 +1,8 @@
 import DiscordJS, { Intents, Interaction } from 'discord.js';
 import dotenv from 'dotenv';
-import { CommandInterface } from './src/utils/CommandInterface';
-import { CommandManager } from './src/utils/CommandManager';
+import { isNamedExportBindings } from 'typescript';
+import { CommandInterface } from './utils/CommandInterface';
+import { CommandManager } from './utils/CommandManager';
 
 dotenv.config();
 
@@ -20,16 +21,7 @@ client.on('ready', () => {
     const guildId = 'process.env.GUILD_ID';
     const guild = client.guilds.cache.get(guildId);
     let commands = guild ? guild.commands : client.application?.commands;
-
-    commandManager.getAllCommands()?.forEach((command : CommandInterface) => {
-        if(command.name == undefined) return;
-        if(command.description == undefined) return;
-        commands?.create({
-            name: command.name,
-            description: command.description,
-            options: command.options
-        });
-    });
+    commandManager.registerCommands(commands);
 });
 
 
