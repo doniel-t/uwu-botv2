@@ -1,17 +1,19 @@
 import { CommandInterface } from './CommandInterface';
-import requireDir from "require-dir";
-import { Add } from '../Commands/Add';
+import { addCommand } from '../Commands/Add';
+import { askCommand } from '../Commands/Ask';
 
 export class CommandManager{
 
-    commands : CommandInterface[] = [require('../Commands/Add')];
+    commands : CommandInterface[] = [];
 
     constructor(){
-        this.initCommands();
+        this.loadAllCommands();
     }
 
-    initCommands() : void{
-        this.commands.push(new Add());
+    //loads all exported obj from command ts file
+    loadAllCommands() : void{
+        this.commands.push(addCommand);
+        this.commands.push(askCommand);
     }
 
     getAllCommands() : CommandInterface[]{

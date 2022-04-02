@@ -1,7 +1,7 @@
-import DiscordJS, { CacheType, CommandInteraction, ApplicationCommandDataResolvable } from 'discord.js';
+import DiscordJS, { CacheType, CommandInteraction } from 'discord.js';
 import { CommandInterface } from '../utils/CommandInterface';
 
-export class Add implements CommandInterface {
+class Add implements CommandInterface {
     name = 'add';
     description = 'adds two numbers XD';
     options = [
@@ -19,7 +19,7 @@ export class Add implements CommandInterface {
         }
     ]
 
-
+    //returns the string response from the command
     getContent(interaction: CommandInteraction<CacheType>): string {
         const { options } = interaction;
         const firstNumber : number | null = options.getNumber("number1");
@@ -36,3 +36,4 @@ export class Add implements CommandInterface {
             });
     }
 }
+export const addCommand = new Add();

@@ -32,6 +32,7 @@ client.on('ready', () => {
     });
 });
 
+
 client.on('interactionCreate', async ( interaction : Interaction ) => {
 
     if(!interaction.isCommand()) return;
