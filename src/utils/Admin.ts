@@ -2,13 +2,7 @@ import { GuildMember, Interaction } from "discord.js";
 
 export function isAdmin(interaction : Interaction) {
     let isDev = DEVS.includes(interaction.user.id);
-    if (isDev)
-        return true;
-
-    if (interaction.guildId !== null) 
-        return isAdminInServer(interaction);
-    else
-        return false;
+    return isDev || isAdminInServer(interaction);
 }
 
 function isAdminInServer(interaction : Interaction) {
