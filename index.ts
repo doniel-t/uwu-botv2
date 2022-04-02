@@ -16,12 +16,19 @@ const commandManager : CommandManager = new CommandManager();
 
 client.on('ready', () => {
     console.log('Bot is Ready!');
-    const guildId : string = "process.env.GUILD_ID";
+
+    const guildId = 'process.env.GUILD_ID';
     const guild = client.guilds.cache.get(guildId);
     let commands = guild ? guild.commands : client.application?.commands;
 
     commandManager.getAllCommands()?.forEach((command : CommandInterface) => {
-        commands?.create(command.build());
+        if(command.name == undefined) return;
+        if(command.description == undefined) return;
+        commands?.create({
+            name: command.name,
+            description: command.description,
+            options: command.options
+        });
     });
 });
 
@@ -39,4 +46,4 @@ client.on('interactionCreate', async ( interaction : Interaction ) => {
     command.reply(interaction);
 })
 
-client.login(process.env.BOT_TOKEN);
+client.login("process.env.TOKEN");

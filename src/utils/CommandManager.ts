@@ -1,11 +1,17 @@
 import { CommandInterface } from './CommandInterface';
+import requireDir from "require-dir";
+import { Add } from '../Commands/Add';
 
 export class CommandManager{
 
-    commands : CommandInterface[] = [];
+    commands : CommandInterface[] = [require('../Commands/Add')];
+
+    constructor(){
+        this.initCommands();
+    }
 
     initCommands() : void{
-        //load commands from directory
+        this.commands.push(new Add());
     }
 
     getAllCommands() : CommandInterface[]{
