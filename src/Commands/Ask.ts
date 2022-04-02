@@ -1,20 +1,26 @@
-import { CommandInterface } from "src/utils/CommandInterface";
-import DiscordJS, { CacheType, CommandInteraction } from "discord.js";
+import { CommandInterface } from "../utils/CommandInterface";
+import DiscordJS from "discord.js";
 
-class Ask implements CommandInterface {
+class Ask extends CommandInterface {
     name: string = "ask";
     shortcut = 'a';
     description: string = "Ask a question";
     options: any = [
-    {
-        name: "question",
-        description: "Question to ask",
-        required: true,
-        type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
-    },
+        {
+            name: "question",
+            description: "Question to ask",
+            required: true,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
     ];
 
-    answers : string[] = [
+    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+        interaction.reply({
+            content: interaction.options.getString("question") + "\n**" + this.getContent() + "**",
+        });
+    }
+
+    answers: string[] = [
         "So it would seem.",
         "As I see it, yes.",
         "Don't count on it",
@@ -33,7 +39,7 @@ class Ask implements CommandInterface {
         "You may rely on it",
     ];
 
-    aprilfoolsAnswers : string[] = [
+    aprilfoolsAnswers: string[] = [
         "Ey du Hurensohn",
         "XD IMAGINE THINKING THAT",
         "you are the bot now",
@@ -107,7 +113,7 @@ class Ask implements CommandInterface {
         "go apply for ronald mcdonalds position",
     ];
 
-    isAprilFools() : boolean {
+    isAprilFools(): boolean {
         let aprilFoolsDay = {
             month: 3,
             date: 1
@@ -116,19 +122,13 @@ class Ask implements CommandInterface {
         return now.getMonth() == aprilFoolsDay.month && now.getDate() == aprilFoolsDay.date;
     };
 
-    getResponse(answerArray : string[]) : string {
+    getResponse(answerArray: string[]): string {
         return answerArray[Math.floor(Math.random() * answerArray.length)];
     }
 
-    getContent(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): string {
+    getContent(): string {
         return this.isAprilFools() ? this.getResponse(this.aprilfoolsAnswers) : this.getResponse(this.answers);
-    }
-
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
-        interaction.reply({
-            content: this.getContent(interaction),
-        });
     }
 }
 
-export const askCommand = new Ask();
+export function getInstance() {return new Ask()};

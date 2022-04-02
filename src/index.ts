@@ -1,42 +1,42 @@
 import DiscordJS, { Intents, Interaction } from 'discord.js';
 import dotenv from 'dotenv';
-import { isNamedExportBindings } from 'typescript';
-import { CommandInterface } from './utils/CommandInterface';
 import { CommandManager } from './utils/CommandManager';
+import { isAdmin } from './utils/Admin';
 
-dotenv.config();
+dotenv.config({ path: './secrets/.env' });
 
-const client = new DiscordJS.Client({
+export const client = new DiscordJS.Client({
     intents: [
         Intents.FLAGS.GUILDS,
         Intents.FLAGS.GUILD_MESSAGES,
     ]
 });
 
-const commandManager : CommandManager = new CommandManager();
+export var commandManager: CommandManager;
 
 client.on('ready', () => {
+    commandManager = new CommandManager();
     console.log('Bot is Ready!');
-
-    const guildId = 'process.env.GUILD_ID';
-    const guild = client.guilds.cache.get(guildId);
-    let commands = guild ? guild.commands : client.application?.commands;
-    commandManager.registerCommands(commands);
 });
 
+client.on('interactionCreate', async (interaction: Interaction) => {
 
-client.on('interactionCreate', async ( interaction : Interaction ) => {
+    if (!interaction.isCommand()) return;
 
-    if(!interaction.isCommand()) return;
-
-    const { commandName } = interaction;
-
-    const command = commandManager.getCommandByName(commandName);
-    if (command == undefined){
+    const command = commandManager.getCommandByName(interaction.commandName);
+    if (command == undefined) {
         interaction.reply('Command not found!');
         return;
+    }
+    if ('isAdmin' in command) {
+        if (!isAdmin(interaction.user.id, interaction.guildId)) {
+            interaction.reply({
+                content: 'You are not an admin!'
+            });
+            return;
+        }
     }
     command.reply(interaction);
 })
 
-client.login("process.env.TOKEN");
+client.login(process.env.TOKEN);
