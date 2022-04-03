@@ -2,7 +2,7 @@ import { CommandInterface } from "../utils/CommandInterface";
 import DiscordJS from "discord.js";
 
 class Choose extends CommandInterface {
-    name: string = "chooose";
+    name: string = "choose";
     shortcut = 'c';
     description: string = "Choose between different Options";
     options: any = [

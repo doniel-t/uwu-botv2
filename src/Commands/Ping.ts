@@ -1,7 +1,6 @@
 import DiscordJS from 'discord.js';
 import { CommandInterface } from '../utils/CommandInterface';
-//@ts-ignore 7016
-import {ping} from 'ping';
+import ping from 'ping';
 
 class Ping extends CommandInterface {
     name = "ping";
