@@ -1,7 +1,8 @@
 import DiscordJS from 'discord.js';
-import { DevCommandClass } from '../utils/CommandInterface';
 import { commandManager } from "../index";
-import { DevCommandManager } from 'src/utils/DevCommandManager';
+import { DevCommandManager } from '../utils/DevCommandManager';
+import { DevCommandClass } from '../utils/DevCommand/DevCommand';
+
 
 class ReloadDev extends DevCommandClass {
     name = "reload_dev";

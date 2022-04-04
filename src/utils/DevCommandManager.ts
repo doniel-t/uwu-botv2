@@ -1,4 +1,5 @@
-import { CommandInterface, DevCommandClass } from './CommandInterface';
+import { DevCommandClass } from './DevCommand/DevCommand';
+import { CommandInterface } from './CommandInterface';
 import requireDir from 'require-dir';
 import { client } from '../index';
 import { CommandManagerInterface } from './CommandManagerInterface';
@@ -13,6 +14,12 @@ export class DevCommandManager implements CommandManagerInterface {
         this.loadCommands();
     }
 
+
+    async deleteCachedCommands(): Promise<void> {
+        await client.application!.commands.set([]);
+    }
+
+
     loadCommands(): void {
         if (client.application == null) {
             throw new Error("No client application found")
@@ -21,9 +28,11 @@ export class DevCommandManager implements CommandManagerInterface {
         this.loadDevCommands();
     }
 
+
     getCommandByName(name: string): CommandInterface | undefined {
         return this.commands.find(command => command.name === name || command.shortcut === name) || this.devCommands.find(command => command.name === name || command.shortcut === name);
     }
+    
 
     loadNormalCommands(): void {
         //@ts-ignore 2345
@@ -38,6 +47,7 @@ export class DevCommandManager implements CommandManagerInterface {
             }
             this.commands.push(command);
         }
+
         for (let command of this.commands) {
             client.application?.commands.create({
                 name: command.name,
@@ -72,6 +82,7 @@ export class DevCommandManager implements CommandManagerInterface {
             }
             this.devCommands.push(command);
         }
+
         for (let command of this.devCommands) {
             client.guilds.cache.get(process.env.GUILD_ID as string)?.commands.create({
                 name: command.name,

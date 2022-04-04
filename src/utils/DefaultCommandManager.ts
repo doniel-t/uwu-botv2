@@ -40,6 +40,10 @@ export class DefaultCommandManager implements CommandManagerInterface {
         });
     }
 
+    async deleteCachedCommands(): Promise<void> {
+        await client.application!.commands.set([]);
+    }
+
     getCommandByName(name: string): CommandInterface | undefined {
         return this.commands.find(command => command.name === name || command.shortcut === name);
     }
