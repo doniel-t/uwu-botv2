@@ -1,8 +1,8 @@
 import DiscordJS, { CacheType, CommandInteraction } from 'discord.js';
-import { CommandInterface } from '../utils/CommandInterface';
+import { NormalCommandClass } from '../utils/CommandInterface';
 import cleverbot from 'cleverbot-free';
 
-class Chat extends CommandInterface {
+class Chat extends NormalCommandClass {
     name = 'chat';
     description = 'Talk to the bot';
     options = [

@@ -1,9 +1,13 @@
 import DiscordJS, { Intents, Interaction } from 'discord.js';
 import dotenv from 'dotenv';
-import { CommandManager } from './utils/CommandManager';
+import { CommandManagerInterface } from './utils/CommandManagerInterface';
 import { isAdmin } from './utils/Admin';
+import { DevCommandManager } from './utils/DevCommandManager';
+import { DefaultCommandManager } from './utils/DefaultCommandManager';
 
 dotenv.config({ path: './secrets/.env' });
+
+export const devMode = process.argv.includes("dev");
 
 export const client = new DiscordJS.Client({
     intents: [
@@ -12,11 +16,16 @@ export const client = new DiscordJS.Client({
     ]
 });
 
-export var commandManager: CommandManager;
+export var commandManager: CommandManagerInterface;
 
 client.on('ready', () => {
-    commandManager = new CommandManager();
-    console.log('Bot is Ready!');
+    if (devMode) {
+        commandManager = new DevCommandManager();
+        console.log("Started in Developer Mode!");
+    } else {
+        commandManager = new DefaultCommandManager();
+        console.log('Bot is Ready!');
+    }
 });
 
 client.on('interactionCreate', async (interaction: Interaction) => {
@@ -28,7 +37,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         interaction.reply('Command not found!');
         return;
     }
-    if ('isAdmin' in command) {
+    if (command.isAdmin) {
         if (!isAdmin(interaction)) {
             interaction.reply({
                 content: 'You are not an admin!'
@@ -37,6 +46,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
     }
     command.reply(interaction);
-})
+});
 
 client.login(process.env.TOKEN);
