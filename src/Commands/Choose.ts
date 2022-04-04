@@ -1,7 +1,7 @@
-import { CommandInterface } from "../utils/CommandInterface";
+import { NormalCommandClass } from "../utils/CommandInterface";
 import DiscordJS from "discord.js";
 
-class Choose extends CommandInterface {
+class Choose extends NormalCommandClass {
     name: string = "choose";
     shortcut = 'c';
     description: string = "Choose between different Options";

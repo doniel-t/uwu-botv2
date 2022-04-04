@@ -1,7 +1,7 @@
 import DiscordJS, { CacheType, CommandInteraction } from 'discord.js';
-import { CommandInterface } from '../utils/CommandInterface';
+import { NormalCommandClass } from '../utils/CommandInterface';
 
-class Add extends CommandInterface {
+class Add extends NormalCommandClass {
     name = 'add';
     description = 'adds two numbers XD';
     options = [

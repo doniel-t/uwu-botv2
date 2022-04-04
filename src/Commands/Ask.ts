@@ -1,7 +1,7 @@
-import { CommandInterface } from "../utils/CommandInterface";
+import { NormalCommandClass } from "../utils/CommandInterface";
 import DiscordJS from "discord.js";
 
-class Ask extends CommandInterface {
+class Ask extends NormalCommandClass {
     name: string = "ask";
     shortcut = 'a';
     description: string = "Ask a question";

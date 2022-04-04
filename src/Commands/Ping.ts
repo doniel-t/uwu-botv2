@@ -1,8 +1,8 @@
 import DiscordJS from 'discord.js';
-import { CommandInterface } from '../utils/CommandInterface';
+import { NormalCommandClass } from '../utils/CommandInterface';
 import ping from 'ping';
 
-class Ping extends CommandInterface {
+class Ping extends NormalCommandClass {
     name = "ping";
     description = "Pings different Servers";
     servers = ['status.discordapp.com', 'google.com'];
