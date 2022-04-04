@@ -1,7 +1,7 @@
 import DiscordJS from 'discord.js';
-import { DevCommandClass } from '../utils/CommandInterface';
+import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
 
-class Version extends DevCommandClass {
+class Version extends NormalCommandClass {
     name = "version";
     shortcut = "v";
     description = "Replies with the current version of the bot";

@@ -1,8 +1,7 @@
 import DiscordJS from 'discord.js';
 import { commandManager } from '../index';
-import { DevCommandManager } from 'src/utils/DevCommandManager';
-import { DevCommandClass } from '../utils/CommandInterface';
-import { ApplicationCommandOptionTypes } from 'discord.js/typings/enums';
+import { DevCommandManager } from '../utils/DevCommandManager';
+import { DevCommandClass } from '../utils/DevCommand/DevCommand';
 
 class DeleteDevCache extends DevCommandClass {
     name = "delete_dev_cache";

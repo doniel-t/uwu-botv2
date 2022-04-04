@@ -1,4 +1,4 @@
-import { NormalCommandClass } from "../utils/CommandInterface";
+import { NormalCommandClass } from "../utils/NormalCommand/NormalCommand";
 import DiscordJS from "discord.js";
 
 class Choose extends NormalCommandClass {
