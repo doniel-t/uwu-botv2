@@ -1,8 +1,8 @@
 import DiscordJS from 'discord.js';
 import { client } from '../index';
-import { DevCommandClass } from '../utils/CommandInterface';
+import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
 
-class PrintAllEmojis extends DevCommandClass {
+class PrintAllEmojis extends NormalCommandClass {
     name = "print_all_emojis";
     description = "Prints all emojis in the bot";
     reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
