@@ -1,4 +1,5 @@
 import { CacheType, CommandInteraction } from 'discord.js';
+import { DevCommandManager } from 'src/utils/DevCommandManager';
 import { commandManager } from '../index';
 import { DevCommandClass } from '../utils/DevCommand/DevCommand';
 
@@ -8,7 +9,7 @@ class DeleteCachedCommands extends DevCommandClass {
     options = []
     reloadable = false;
     reply(interaction: CommandInteraction<CacheType>): void {
-        commandManager.deleteCachedCommands();
+        (commandManager as DevCommandManager).deleteCachedCommands();
         commandManager.loadCommands();
 
         interaction.reply({
