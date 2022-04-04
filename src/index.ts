@@ -1,9 +1,10 @@
-import DiscordJS, { Intents, Interaction } from 'discord.js';
+import DiscordJS, { Intents, Interaction, Message } from 'discord.js';
 import dotenv from 'dotenv';
 import { CommandManagerInterface } from './utils/CommandManagerInterface';
 import { isAdmin } from './utils/Admin';
 import { DevCommandManager } from './utils/DevCommandManager';
 import { DefaultCommandManager } from './utils/DefaultCommandManager';
+import { EmojiHandler } from './Functions/EmojiHandler';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -17,15 +18,17 @@ export const client = new DiscordJS.Client({
 });
 
 export var commandManager: CommandManagerInterface;
+export var emojiHandler: EmojiHandler;
 
 client.on('ready', () => {
     if (devMode) {
         commandManager = new DevCommandManager();
         console.log("Started in Developer Mode!");
     } else {
-        commandManager = new DefaultCommandManager();
-        console.log('Bot is Ready!');
+        commandManager = new DefaultCommandManager();  
     }
+    emojiHandler = new EmojiHandler();
+    console.log('Bot is Ready!');
 });
 
 client.on('interactionCreate', async (interaction: Interaction) => {
@@ -46,6 +49,13 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
     }
     command.reply(interaction);
+});
+
+client.on('messageCreate', async (message: Message) => {
+    //check if guild settings have emoji detection on
+    if (true) {
+        emojiHandler.proccessMessage(message);
+    }
 });
 
 client.login(process.env.TOKEN);
