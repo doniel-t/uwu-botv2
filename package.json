@@ -16,7 +16,8 @@
     "discord.js": "^13.6.0",
     "dotenv": "^16.0.0",
     "ping": "^0.4.1",
-    "require-dir": "^1.2.0"
+    "require-dir": "^1.2.0",
+    "ws": "^8.5.0"
   },
   "devDependencies": {
     "@types/ping": "^0.4.1",
