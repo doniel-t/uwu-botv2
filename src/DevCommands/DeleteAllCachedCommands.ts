@@ -6,7 +6,7 @@ class DeleteCachedCommands extends DevCommandClass {
     name = 'delete_all_cached_commands';
     description = 'deletes all cached commands and reloads them';
     options = []
-
+    reloadable = false;
     reply(interaction: CommandInteraction<CacheType>): void {
         commandManager.deleteCachedCommands();
         commandManager.loadCommands();
@@ -22,4 +22,4 @@ class DeleteCachedCommands extends DevCommandClass {
     }
 }
 
-export function getInstance() {return new DeleteCachedCommands()};
+export function getInstance() { return new DeleteCachedCommands() };
