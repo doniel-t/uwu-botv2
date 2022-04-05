@@ -50,7 +50,7 @@ class Choose extends NormalCommandClass {
         },
         {
             name: "option8",
-            description: "Option8",
+            description: "Option 8",
             required: false,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
         },
@@ -75,14 +75,14 @@ class Choose extends NormalCommandClass {
     }
 
     getString(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): string {
-        let options = [];
-        for (let i = 0; i < options.length; i++) {
+        let optionArray = [];
+        for (let i = 0; i < this.options.length; i++) {
             let option = interaction.options.getString("option" + (i + 1));
             if (option) {
-                options.push(option);
+                optionArray.push(option);
             }
         }
-        return options.join(" or ") + "?\n**" + options[Math.floor(Math.random() * options.length)] + "**";
+        return optionArray.join(" or ") + "?\n**" + optionArray[Math.floor(Math.random() * optionArray.length)] + "**";
     }
 }
 
