@@ -6,8 +6,9 @@ import { DevCommandManager } from './utils/DevCommandManager';
 import { DefaultCommandManager } from './utils/DefaultCommandManager';
 import { EmojiHandler } from './Functions/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
-import { GuildSettings, GuildSettingsTypes } from './utils/GuildSettings';
+import { GuildSettingsTypes } from './utils/GuildSettings';
 import { NameHandler } from './utils/NameHandler';
+import { SettingsHandler } from './utils/SettingsHandler';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -23,13 +24,13 @@ export const client = new DiscordJS.Client({
 export var commandManager: CommandManagerInterface;
 export var emojiHandler: EmojiHandler;
 export var fileHandler: FileHandler;
-export var guildSettingsDict: Map<string, GuildSettings>;
+export var settingsHandler: SettingsHandler;
 export var nameHandler: NameHandler;
 
 client.on('ready', () => {
     fileHandler = new FileHandler();
-    guildSettingsDict = fileHandler.initSettings();
-    if (guildSettingsDict.size == 0) {
+    settingsHandler = new SettingsHandler(fileHandler.initSettings());
+    if (settingsHandler.valid) {
         console.log("Settings Initialization failed!");
         client.destroy();
         return;
@@ -62,11 +63,18 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
     }
-    command.reply(interaction);
+    try {
+        await command.reply(interaction);        
+    } catch (error) {
+        console.log(error);
+        interaction.reply({
+            content: 'An error occured!'
+        });
+    }
 });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.guild !== null && guildSettingsDict.get(message.guild.id)?.get(GuildSettingsTypes.EMOJI_DETECTION)) {
+    if (message.guild !== null && settingsHandler.get(message.guild.id,GuildSettingsTypes.EMOJI_DETECTION)) {
         emojiHandler.proccessMessage(message);
     }
 });
