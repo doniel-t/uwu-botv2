@@ -20,14 +20,13 @@ export class FileHandler {
 
     initSettings(): Map<string, GuildSettings> {
         try {
-            let defaultSettings = require("../../Files/defaultSettings.json");
             let settingsDict = new Map<string, GuildSettings>();
 
             client.guilds.cache.forEach((guild: Guild) => {
                 if (!fs.existsSync(`Files/${guild.id}`))
                     fs.mkdirSync(`Files/${guild.id}/`);
                 if (!fs.existsSync(`Files/${guild.id}/${FileTypes.SETTINGS}`))
-                    this.write(FileTypes.SETTINGS, guild.id, defaultSettings);
+                    this.write(FileTypes.SETTINGS, guild.id, {});
 
                 settingsDict.set(guild.id, new GuildSettings(this.read(FileTypes.SETTINGS, guild.id)));
             });
