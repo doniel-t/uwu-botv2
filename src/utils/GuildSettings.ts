@@ -5,8 +5,8 @@ export class GuildSettings {
     constructor(jsonObject: any) {
         this.settings = new Map<GuildSettingsTypes, boolean | string | number>();
         for (let setting in GuildSettingsTypes) {
-            this.set(GuildSettingsTypes[setting as keyof typeof GuildSettingsTypes],
-                jsonObject[setting] ?? this.getDefault(GuildSettingsTypes[setting as keyof typeof GuildSettingsTypes]));
+            this.set(setting as GuildSettingsTypes,
+                jsonObject[setting] ?? this.getDefault(setting as GuildSettingsTypes));
         }
     }
 
@@ -27,12 +27,13 @@ export class GuildSettings {
         }
     }
 
-    toJSON(): any {
+    toJSON(): { [key: string]: boolean | string | number} {
+        // @ts-ignore 2741
         return Array.from(this.settings).reduce((obj, [key, value]) => {
             //@ts-ignore 7053
             obj[key] = value;
             return obj;
-        }, {});;
+        }, {});
     }
 }
 

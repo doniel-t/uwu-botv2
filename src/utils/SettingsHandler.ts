@@ -22,17 +22,21 @@ export class SettingsHandler {
     }
 
     set(guildId: string | null, setting: GuildSettingsTypes, value: boolean | string | number, saveFile: boolean = true): boolean {
-        if (guildId == null) {
+        if (guildId == null || !this.guildSettingsDict.has(guildId) || setting == undefined) {
             return false;
         }
-        if (this.guildSettingsDict.has(guildId)) {
-            this.guildSettingsDict.get(guildId)?.set(setting, value);
-            if (saveFile) {
-                fileHandler.write(FileTypes.SETTINGS, guildId, this.guildSettingsDict.get(guildId)?.toJSON());
-            }
-            return true;
+        this.guildSettingsDict.get(guildId)?.set(setting, value);
+        if (saveFile) {
+            fileHandler.write(FileTypes.SETTINGS, guildId, this.guildSettingsDict.get(guildId)?.toJSON());
         }
-        return false;
+        return true;
+    }
+
+    getAllSettings(guildId: string | null): { [key: string]: boolean | string | number} | undefined {
+        if (guildId == null || !this.guildSettingsDict.has(guildId)) {
+            return undefined;
+        }
+        return this.guildSettingsDict.get(guildId)?.toJSON();
     }
 
     saveAllSettings() {
