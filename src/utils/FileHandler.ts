@@ -7,7 +7,11 @@ import { GuildSettings } from "./GuildSettings";
 export class FileHandler {
 
     read(fileType: FileTypes, guildId: string) {
-        return require(`../../Files/${guildId}/${fileType}`);
+        try {
+            return require(`../../Files/${guildId}/${fileType}`);            
+        } catch (_) {
+            return undefined;
+        }
     }
 
     write(fileType: FileTypes, guildId: string, content: any): boolean {

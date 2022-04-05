@@ -7,6 +7,7 @@ import { DefaultCommandManager } from './utils/DefaultCommandManager';
 import { EmojiHandler } from './Functions/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
 import { GuildSettings, GuildSettingsTypes } from './utils/GuildSettings';
+import { NameHandler } from './utils/NameHandler';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -23,6 +24,7 @@ export var commandManager: CommandManagerInterface;
 export var emojiHandler: EmojiHandler;
 export var fileHandler: FileHandler;
 export var guildSettingsDict: Map<string, GuildSettings>;
+export var nameHandler: NameHandler;
 
 client.on('ready', () => {
     fileHandler = new FileHandler();
@@ -39,6 +41,7 @@ client.on('ready', () => {
         commandManager = new DefaultCommandManager();
     }
     emojiHandler = new EmojiHandler();
+    nameHandler = new NameHandler();
     console.log('Bot is Ready!');
 });
 
