@@ -5,8 +5,10 @@ export class GuildSettings {
     constructor(jsonObject: any) {
         this.settings = new Map<GuildSettingsTypes, boolean | string | number>();
         for (let setting in GuildSettingsTypes) {
-            this.set(setting as GuildSettingsTypes,
-                jsonObject[setting] ?? this.getDefault(setting as GuildSettingsTypes));
+            //@ts-ignore 2551
+            this.set(GuildSettingsTypes[setting as GuildSettingsTypes],
+                //@ts-ignore 2551
+                jsonObject[setting] ?? this.getDefault(GuildSettingsTypes[setting as GuildSettingsTypes]));
         }
     }
 
