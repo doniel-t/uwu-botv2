@@ -2,3 +2,4 @@ node_modules/
 secrets/
 Files/*
 !Files/defaultSettings.json
+src/DevCommands/Test.ts
