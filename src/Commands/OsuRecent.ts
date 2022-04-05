@@ -1,7 +1,8 @@
 import DiscordJS, { MessageEmbed } from 'discord.js';
 import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
-import { client } from '../index';
+import { client, nameHandler } from '../index';
 import { WebSocket, MessageEvent } from 'ws';
+import { GameTypes } from '../utils/NameHandler';
 
 class OsuRecent extends NormalCommandClass {
     name = "osurecent";
@@ -10,7 +11,7 @@ class OsuRecent extends NormalCommandClass {
         {
             name: "username",
             description: "Username of the user",
-            required: true,
+            required: false,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
         },
     ];
@@ -22,7 +23,12 @@ class OsuRecent extends NormalCommandClass {
 
     private async getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>, callback: (messageEmbed: MessageEmbed) => void) {
 
-        let name = interaction.options.getString("username");
+        let name = getName(interaction);
+
+        if (!name) {
+            interaction.reply({ content: "Please provide a username" });
+            return;
+        }
 
         let ws = new WebSocket('ws://127.0.0.1:60001', { handshakeTimeout: 5000 }); //Connection to Server
 
@@ -99,6 +105,15 @@ class OsuRecent extends NormalCommandClass {
 }
 
 export function getInstance() { return new OsuRecent() };
+
+function getName(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>) {
+    let name = interaction.options.getString("username");
+    if (name == null) {
+        //@ts-ignore 2322
+        name = nameHandler.get(interaction.user.id, interaction.guildId, GameTypes.OSU);
+    }
+    return name;
+}
 
 function getEmoji(emojiName: String) {
     let emoji = client.emojis.cache.find(emoji => emoji.name === emojiName);   //get Emoji from Server

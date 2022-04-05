@@ -18,17 +18,72 @@ class Choose extends NormalCommandClass {
             required: true,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
         },
+        {
+            name: "option3",
+            description: "Option 3",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option4",
+            description: "Option 4",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option5",
+            description: "Option 5",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option6",
+            description: "Option 6",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option7",
+            description: "Option 7",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option8",
+            description: "Option 8",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option9",
+            description: "Option 9",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
+        {
+            name: "option10",
+            description: "Option 10",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
     ];
 
     reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
         interaction.reply({
-            content: interaction.options.getString("option1") + " or " + interaction.options.getString("option2") + "?\n**" + this.getChoice(interaction) + "**",
+            content: this.getString(interaction),
         });
     }
 
-    getChoice(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): string {
-        return interaction.options.getString(Math.random() > 0.5 ? "option1" : "option2") as string;
+    getString(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): string {
+        let optionArray = [];
+        for (let i = 0; i < this.options.length; i++) {
+            let option = interaction.options.getString("option" + (i + 1));
+            if (option) {
+                optionArray.push(option);
+            }
+        }
+        return optionArray.join(" or ") + "?\n**" + optionArray[Math.floor(Math.random() * optionArray.length)] + "**";
     }
 }
 
-export function getInstance() {return new Choose()};
+export function getInstance() { return new Choose() };

@@ -15,6 +15,7 @@
     "cleverbot-free": "^1.1.10",
     "discord.js": "^13.6.0",
     "dotenv": "^16.0.0",
+    "fs": "^0.0.1-security",
     "ping": "^0.4.1",
     "require-dir": "^1.2.0",
     "ws": "^8.5.0"
