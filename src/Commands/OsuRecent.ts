@@ -30,7 +30,7 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
     let name = getName(interaction);
 
     if (!name) {
-        interaction.reply({ content: "Please provide a username" });
+        callback(new MessageEmbed().setTitle('Please provide a username').setColor('#ff0000'));
         return;
     }
 
