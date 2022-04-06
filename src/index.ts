@@ -18,6 +18,7 @@ export const client = new DiscordJS.Client({
     intents: [
         Intents.FLAGS.GUILDS,
         Intents.FLAGS.GUILD_MESSAGES,
+        Intents.FLAGS.DIRECT_MESSAGES,
     ]
 });
 
@@ -74,7 +75,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.guild !== null && settingsHandler.get(message.guild.id,GuildSettingsTypes.EMOJI_DETECTION)) {
+    if (message.guild !== null && settingsHandler.get(message.guild.id,GuildSettingsTypes.EMOJI_DETECTION)?.value) {
         emojiHandler.proccessMessage(message);
     }
 });

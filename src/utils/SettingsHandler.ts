@@ -1,5 +1,6 @@
 import { fileHandler } from "../index";
 import { FileTypes } from "./FileHandler";
+import { GuildSetting } from "./GuildSetting";
 import { GuildSettings, GuildSettingsTypes } from "./GuildSettings";
 
 export class SettingsHandler {
@@ -11,7 +12,7 @@ export class SettingsHandler {
         this.saveAllSettings();
     }
 
-    get(guildId: string | null, setting: GuildSettingsTypes): boolean | string | number | undefined {
+    get(guildId: string | null, setting: GuildSettingsTypes): GuildSetting | undefined {
         if (guildId == null) {
             return undefined;
         }
@@ -32,11 +33,11 @@ export class SettingsHandler {
         return true;
     }
 
-    getAllSettings(guildId: string | null): { [key: string]: boolean | string | number} | undefined {
+    getAllSettings(guildId: string | null): GuildSettings | undefined {
         if (guildId == null || !this.guildSettingsDict.has(guildId)) {
             return undefined;
         }
-        return this.guildSettingsDict.get(guildId)?.toJSON();
+        return this.guildSettingsDict.get(guildId);
     }
 
     saveAllSettings() {
