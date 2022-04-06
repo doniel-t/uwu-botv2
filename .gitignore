@@ -2,3 +2,4 @@ node_modules/
 secrets/
 Files/*
 src/DevCommands/Test.ts
+*.log
