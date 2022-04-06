@@ -1,2 +1,4 @@
-del "*.log" /q /f
-ts-node . > %date:~-4%_%date:~3,2%_%date:~0,2%__%time:~1,1%_%time:~3,2%_%time:~6,2%.log
+Rem Starting uwu-botv2 and websocket
+start cmd /c "cd dependencies/websocket & start cmd /k run.bat"
+timeout /t 3
+start cmd /k "RunNoWebsocket.bat"
