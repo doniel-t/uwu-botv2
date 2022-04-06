@@ -1,0 +1,6 @@
+[submodule "dependencies/websocket"]
+	path = dependencies/websocket
+	url = https://github.com/ackhack/uwuBot-WebSocket.git
+[submodule "dependencies/vscode_extension"]
+	path = dependencies/vscode_extension
+	url = https://github.com/ackhack/uwu-botv2-VSCodeExtension.git
