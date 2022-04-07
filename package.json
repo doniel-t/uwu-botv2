@@ -2,10 +2,12 @@
   "name": "uwubotv2",
   "version": "1.0.0",
   "description": "",
-  "main": "./src/index.ts",
+  "main": "./src/start.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node ./src/index.ts dev"
+    "main": "ts-node .",
+    "main-ws": "ts-node . ws",
+    "dev": "ts-node . dev",
+    "dev-ws": "ts-node . dev ws"
   },
   "keywords": [],
   "author": "",

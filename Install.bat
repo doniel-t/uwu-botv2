@@ -1,5 +1,7 @@
-git pull origin master
-git submodules update --init --recursive
+mkdir secrets
+cd secrets
+"GUILD_ID=\nTOKEN=\nCLIENT_ID=" > .env
+cd ..
 call npm install
 cd dependencies/websocket
 call npm install
