@@ -14,13 +14,18 @@
   "license": "ISC",
   "dependencies": {
     "@discordjs/builders": "^0.12.0",
+    "@discordjs/opus": "^0.5.3",
+    "@discordjs/voice": "^0.8.0",
     "cleverbot-free": "^1.1.10",
     "discord.js": "^13.6.0",
     "dotenv": "^16.0.0",
+    "ffmpeg-static": "^4.4.1",
     "fs": "^0.0.1-security",
+    "libsodium-wrappers": "^0.7.10",
     "ping": "^0.4.1",
     "require-dir": "^1.2.0",
-    "ws": "^8.5.0"
+    "ws": "^8.5.0",
+    "ytdl-core": "^4.11.0"
   },
   "devDependencies": {
     "@types/ping": "^0.4.1",

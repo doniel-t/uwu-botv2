@@ -9,6 +9,7 @@ import { FileHandler } from './utils/FileHandler';
 import { GuildSettingsTypes } from './utils/GuildSettings';
 import { NameHandler } from './utils/NameHandler';
 import { SettingsHandler } from './utils/SettingsHandler';
+import { MusicHandler } from './utils/MusicHandler';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -19,6 +20,7 @@ export const client = new DiscordJS.Client({
         Intents.FLAGS.GUILDS,
         Intents.FLAGS.GUILD_MESSAGES,
         Intents.FLAGS.DIRECT_MESSAGES,
+        Intents.FLAGS.GUILD_VOICE_STATES,
     ]
 });
 
@@ -27,6 +29,7 @@ export var emojiHandler: EmojiHandler;
 export var fileHandler: FileHandler;
 export var settingsHandler: SettingsHandler;
 export var nameHandler: NameHandler;
+export var musicHandler: MusicHandler;
 
 client.on('ready', () => {
     fileHandler = new FileHandler();
@@ -44,6 +47,7 @@ client.on('ready', () => {
     }
     emojiHandler = new EmojiHandler();
     nameHandler = new NameHandler();
+    musicHandler = new MusicHandler();
     console.log('Bot is Ready!');
 });
 
