@@ -12,7 +12,7 @@ import { isAdmin } from './utils/Admin';
 import { EmojiHandler } from './Functions/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
 import { NameHandler } from './utils/NameHandler';
-import { MusicHandler } from './utils/MusicHandler';
+import { MusicHandler } from './utils/Music/MusicHandler';
 
 dotenv.config({ path: './secrets/.env' });
 

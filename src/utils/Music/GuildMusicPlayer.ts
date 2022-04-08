@@ -1,6 +1,6 @@
 import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, demuxProbe } from '@discordjs/voice';
 import ytdl from 'ytdl-core';
-import { LiteEvent } from './LiteEvent';
+import { LiteEvent } from '../LiteEvent';
 import { MusicResourceInterface } from './MusicResourceInterface';
 import { YoutubeMusicResource } from './YoutubeMusicResource';
 

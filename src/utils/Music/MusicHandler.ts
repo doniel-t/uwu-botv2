@@ -1,6 +1,6 @@
 import { AudioPlayer } from '@discordjs/voice';
 import { GuildMusicPlayer } from './GuildMusicPlayer';
-import { ILiteEvent } from './LiteEvent';
+import { ILiteEvent } from '../LiteEvent';
 
 export class MusicHandler {
 
