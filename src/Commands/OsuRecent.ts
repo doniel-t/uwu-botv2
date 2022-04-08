@@ -54,51 +54,55 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
         }
 
         let result = JSON.parse(data);
+
+        if (result.length == 0) {
+            callback(new MessageEmbed().setTitle('No recent score found').setColor('#ff0000'));
+            return;
+        }
+
         let recentScore = result[0];
 
-        let ObjectCount = Number.parseInt(recentScore._beatmap.objects.normal) +
-            Number.parseInt(recentScore._beatmap.objects.slider) +
-            Number.parseInt(recentScore._beatmap.objects.spinner);
+        let ObjectCount = Number.parseInt(recentScore.beatmap.count_circles) +
+            Number.parseInt(recentScore.beatmap.count_sliders) +
+            Number.parseInt(recentScore.beatmap.count_spinners);
 
-        let ScoreCount = Number.parseInt(recentScore.counts["50"]) +
-            Number.parseInt(recentScore.counts["100"]) +
-            Number.parseInt(recentScore.counts["300"]) +
-            Number.parseInt(recentScore.counts["miss"]);
+        let ScoreCount = Number.parseInt(recentScore.statistics.count_50) +
+            Number.parseInt(recentScore.statistics.count_100) +
+            Number.parseInt(recentScore.statistics.count_300) +
+            Number.parseInt(recentScore.statistics.count_miss);
 
-        let Acc = (parseFloat(result[2]) * 100).toFixed(2);
+        let Acc = (parseFloat(recentScore.accuracy) * 100).toFixed(2);
         let percentagePassed = (ScoreCount / ObjectCount) * 100;
         if (percentagePassed == 100 && ScoreCount !== ObjectCount) percentagePassed = 99.99;
-        let parsedMods = result[1];
 
         let emb = new MessageEmbed()
-            .setTitle(recentScore._beatmap.artist + ' - ' + recentScore._beatmap.title)
-            .setURL('https://osu.ppy.sh/beatmapsets/' + recentScore._beatmap.beatmapSetId + '#osu/' + recentScore._beatmap.id)
+            .setTitle(recentScore.beatmapset.artist + ' - ' + recentScore.beatmapset.title)
+            .setURL(recentScore.beatmap.url)
             .setColor('#0099ff')
-            .setFooter({ text: recentScore.raw_date })
-            .addField('Score', recentScore.score, true)
-            .addField('Combo', recentScore.maxCombo, true)
-            .addField('BPM', recentScore._beatmap.bpm, true)
-            .addField('Status', recentScore._beatmap.approvalStatus, true)
-            .addField('Passed', percentagePassed.toFixed(2).concat("%"), true)
-
-        if (!(parsedMods === "" || parsedMods == null)) {
-            emb.addField('Mods', parsedMods, true);
+            .setFooter({ text: recentScore.created_at })
+            .addField('Score', recentScore.score.toString(), true)
+            .addField('Combo', recentScore.max_combo.toString(), true)
+            .addField('BPM', recentScore.beatmap.bpm.toString(), true)
+            .addField('Status', recentScore.beatmap.status, true)
+            .addField('Passed%', percentagePassed.toFixed(2).concat("%"), true)
+        if (recentScore.mods.length > 0) {
+            emb.addField('Mods', recentScore.mods.reduce((name: string) => name + " "), true);
         } else {
             emb.addField('\u200b', '\u200b', true);
         }
 
-        emb.addField('Difficulty', recentScore._beatmap.version, true)
-            .addField('StarRating', parseFloat(recentScore._beatmap.difficulty.rating).toFixed(2), true)
+        emb.addField('Difficulty', recentScore.beatmap.version, true)
+            .addField('StarRating', parseFloat(recentScore.beatmap.difficulty_rating.toString()).toFixed(2), true)
         emb.addField('\u200b', '\u200b', true);
 
 
         emb.addField('Accuracy', Acc + '%', true)
-            .addField('Hits', recentScore.counts["300"].concat(getEmoji('hit300') + " ")
-                .concat(recentScore.counts["100"]).concat(getEmoji('hit100') + " ")
-                .concat(recentScore.counts["50"]).concat(getEmoji('hit50') + " ")
-                .concat(recentScore.counts["miss"]).concat(getEmoji('hit0') + " "), true)
+            .addField('Hits', recentScore.statistics.count_300.toString().concat(getEmoji('hit300') + " ")
+                .concat(recentScore.statistics.count_100).concat(getEmoji('hit100') + " ")
+                .concat(recentScore.statistics.count_50).concat(getEmoji('hit50') + " ")
+                .concat(recentScore.statistics.count_miss).concat(getEmoji('hit0')), true)
 
-            .setImage('https://assets.ppy.sh/beatmaps/' + recentScore._beatmap.beatmapSetId + '/covers/cover.jpg');
+            .setImage('https://assets.ppy.sh/beatmaps/' + recentScore.beatmapset.id + '/covers/cover.jpg');
         ws.close();
 
         callback(emb);

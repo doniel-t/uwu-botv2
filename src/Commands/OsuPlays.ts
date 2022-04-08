@@ -56,16 +56,19 @@ function getBestScores(interaction: DiscordJS.CommandInteraction<DiscordJS.Cache
         }
 
         let result = JSON.parse(data);
-        let scores = result[0];
-        let AccArray = result[1];
 
         let emb = new MessageEmbed()
             .setTitle(name + '`s Top ' + MAX_PLAYS + ' Plays');
+
         for (let index = 0; index < MAX_PLAYS; index++) {
-            let Link = '[' + [scores[index]._beatmap.title] + '](https://osu.ppy.sh/beatmapsets/' + scores[index]._beatmap.beatmapSetId + '#osu/' + scores[index]._beatmap.id + ')';
-            let n = index + 1;
-            emb.addField('#' + n,
-                Link.concat("\nAcc: ").concat((parseFloat(AccArray[index]) * 100).toFixed(2)).concat(" %\nPP: ").concat(scores[index].pp));
+            let Link = `[${result[index].beatmapset.title}](${result[index].beatmap.url})`;
+            let content = Link.concat(`\nDiff: ${result[index].beatmap.version}`).concat("\nAcc: ").concat((parseFloat(result[index].accuracy) * 100).toFixed(2)).concat(" %\nPP: ").concat(result[index].pp);
+
+            if (result[index].mods.length > 0) {
+                content = content.concat(`\nMods: ${result[index].mods.reduce((name: string) => name + " ")}`);
+            }
+
+            emb.addField('#' + (index + 1), content);
         }
 
         ws.close();
