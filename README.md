@@ -9,6 +9,11 @@ The second Version of [uwuBot](https://github.com/danieltheil/uwuBot).
     - GUILD_ID is your Dev Server ID
     - TOKEN is the Bot Token from the [Discord Dev Portal](https://discord.com/developers/applications)
     - CLIENT_ID is the ClientID/ApplicationID of the Bot created in the [Discord Dev Portal](https://discord.com/developers/applications)
+5. Add the missing Values to Files in dependencies/websocket/dependencies
+    - RiotAPIKey from [Riot Dev Portal](https://developer.riotgames.com/)
+    - osuAPIKey from an OAuth Client in [osu API v2](https://osu.ppy.sh/home/account/edit)
+    - RedditAPI from [Reddit API](https://www.reddit.com/dev/api/)
+    - TwitchID from [Twitch API](https://dev.twitch.tv/docs/api/)
 
 ## Updating the Bot
 Run the Updater.bat

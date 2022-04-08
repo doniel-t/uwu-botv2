@@ -1,9 +1,12 @@
 mkdir secrets
 cd secrets
-echo GUILD_ID=\nTOKEN=\nCLIENT_ID= > .env
+echo GUILD_ID= > .env
+echo TOKEN= >> .env
+echo CLIENT_ID= >> .env
 cd ..
 call npm install
+git submodule update --init --recursive
 cd dependencies/websocket
-start Installer.bat
+call .\Installer.bat
 cd ../vscode_extension
 call npm install
