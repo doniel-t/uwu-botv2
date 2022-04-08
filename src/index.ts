@@ -1,14 +1,17 @@
 import DiscordJS, { Intents, Interaction, Message } from 'discord.js';
 import dotenv from 'dotenv';
+
 import { CommandManagerInterface } from './utils/Commands/CommandManagerInterface';
-import { isAdmin } from './utils/Admin';
 import { DevCommandManager } from './utils/Commands/DevCommandManager';
 import { DefaultCommandManager } from './utils/Commands/DefaultCommandManager';
+
+import { GuildSettingsTypes } from './utils/Settings/GuildSettings';
+import { SettingsHandler } from './utils/Settings/SettingsHandler';
+
+import { isAdmin } from './utils/Admin';
 import { EmojiHandler } from './Functions/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
-import { GuildSettingsTypes } from './utils/GuildSettings';
 import { NameHandler } from './utils/NameHandler';
-import { SettingsHandler } from './utils/SettingsHandler';
 import { MusicHandler } from './utils/MusicHandler';
 
 dotenv.config({ path: './secrets/.env' });

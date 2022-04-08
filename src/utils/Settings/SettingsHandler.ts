@@ -1,5 +1,5 @@
-import { fileHandler } from "../index";
-import { FileTypes } from "./FileHandler";
+import { fileHandler } from "../../index";
+import { FileTypes } from "../FileHandler";
 import { GuildSetting } from "./GuildSetting";
 import { GuildSettings, GuildSettingsTypes } from "./GuildSettings";
 
