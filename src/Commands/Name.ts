@@ -1,6 +1,6 @@
 import DiscordJS from 'discord.js';
 import { nameHandler } from '../index';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { GameTypes } from '../utils/NameHandler';
 
 class Name extends NormalCommandClass {

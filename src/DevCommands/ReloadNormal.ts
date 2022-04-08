@@ -1,7 +1,7 @@
 import DiscordJS from "discord.js";
 import { commandManager } from "../index";
-import { DevCommandManager } from "../utils/DevCommandManager";
-import { DevCommandClass } from "../utils/DevCommand/DevCommand";
+import { DevCommandManager } from '../utils/Commands/DevCommandManager';
+import { DevCommandClass } from '../utils/Commands/DevCommand/DevCommand';
 
 class ReloadNormal extends DevCommandClass {
     name = "reload_normal";

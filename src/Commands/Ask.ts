@@ -1,4 +1,4 @@
-import { NormalCommandClass } from "../utils/NormalCommand/NormalCommand";
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import DiscordJS from "discord.js";
 
 class Ask extends NormalCommandClass {

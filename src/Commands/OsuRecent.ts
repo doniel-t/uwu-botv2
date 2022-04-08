@@ -1,5 +1,5 @@
 import DiscordJS, { MessageEmbed } from 'discord.js';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { client, nameHandler } from '../index';
 import { WebSocket, MessageEvent } from 'ws';
 import { GameTypes } from '../utils/NameHandler';
@@ -49,7 +49,7 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
         let data = event.data.toString();
 
         if (data.startsWith('ERROR')) {
-            callback(new MessageEmbed().setTitle('No recent score found!').setColor('#ff0000'));
+            callback(new MessageEmbed().setTitle(data).setColor('#ff0000'));
             return;
         }
 

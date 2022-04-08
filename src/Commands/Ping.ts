@@ -1,5 +1,5 @@
 import DiscordJS from 'discord.js';
-import { NormalCommandClass } from "../utils/NormalCommand/NormalCommand";
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import ping from 'ping';
 
 class Ping extends NormalCommandClass {

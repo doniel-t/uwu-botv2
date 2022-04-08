@@ -2,7 +2,7 @@ import { Guild } from "discord.js";
 import { client } from "../index";
 import fs from "fs";
 import path from "path";
-import { GuildSettings } from "./GuildSettings";
+import { GuildSettings } from "./Settings/GuildSettings";
 
 export class FileHandler {
 

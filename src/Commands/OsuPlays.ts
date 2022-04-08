@@ -1,5 +1,5 @@
 import DiscordJS, { MessageEmbed } from 'discord.js';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { nameHandler } from '../index';
 import { WebSocket, MessageEvent } from 'ws';
 import { GameTypes } from '../utils/NameHandler';
@@ -51,7 +51,7 @@ function getBestScores(interaction: DiscordJS.CommandInteraction<DiscordJS.Cache
         let data = event.data.toString();
 
         if (data.startsWith('ERROR')) {
-            callback(new MessageEmbed().setTitle('Username not found or this user has no TopPlays!').setColor('#ff0000'));
+            callback(new MessageEmbed().setTitle(data).setColor('#ff0000'));
             return;
         }
 

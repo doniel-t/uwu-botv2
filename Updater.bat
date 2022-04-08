@@ -1,5 +1,5 @@
 git pull origin master
-git submodules update --init --recursive
+git submodule update --init --recursive
 call npm install
 cd dependencies/websocket
 call npm install
