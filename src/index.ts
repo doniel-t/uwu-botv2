@@ -1,9 +1,9 @@
 import DiscordJS, { Intents, Interaction, Message } from 'discord.js';
 import dotenv from 'dotenv';
-import { CommandManagerInterface } from './utils/CommandManagerInterface';
+import { CommandManagerInterface } from './utils/Commands/CommandManagerInterface';
 import { isAdmin } from './utils/Admin';
-import { DevCommandManager } from './utils/DevCommandManager';
-import { DefaultCommandManager } from './utils/DefaultCommandManager';
+import { DevCommandManager } from './utils/Commands/DevCommandManager';
+import { DefaultCommandManager } from './utils/Commands/DefaultCommandManager';
 import { EmojiHandler } from './Functions/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
 import { GuildSettingsTypes } from './utils/GuildSettings';

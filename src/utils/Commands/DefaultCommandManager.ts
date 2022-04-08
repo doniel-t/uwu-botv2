@@ -1,6 +1,6 @@
 import { CommandInterface } from './CommandInterface';
 import requireDir from 'require-dir';
-import { client } from '../index';
+import { client } from '../../index';
 import { CommandManagerInterface } from './CommandManagerInterface';
 
 export class DefaultCommandManager implements CommandManagerInterface {
@@ -16,7 +16,7 @@ export class DefaultCommandManager implements CommandManagerInterface {
             throw new Error("No client application found")
         }
         
-        let dirs = { ...requireDir("../Commands"), ...requireDir("../AdminCommands") };
+        let dirs = { ...requireDir("../../Commands"), ...requireDir("../../AdminCommands") };
 
         for (let name in dirs) {
             let command = dirs[name].getInstance();

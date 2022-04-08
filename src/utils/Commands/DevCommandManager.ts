@@ -1,7 +1,7 @@
 import { DevCommandClass } from './DevCommand/DevCommand';
 import { CommandInterface } from './CommandInterface';
 import requireDir from 'require-dir';
-import { client } from '../index';
+import { client } from '../../index';
 import { CommandManagerInterface } from './CommandManagerInterface';
 
 export class DevCommandManager implements CommandManagerInterface {
@@ -36,7 +36,7 @@ export class DevCommandManager implements CommandManagerInterface {
 
     loadNormalCommands(): void {
         //@ts-ignore 2345
-        let dirs = { ...requireDir("../Commands", { noCache: true }), ...requireDir("../AdminCommands", { noCache: true }) };
+        let dirs = { ...requireDir("../../Commands", { noCache: true }), ...requireDir("../../AdminCommands", { noCache: true }) };
 
         for (let name in dirs) {
             let command = dirs[name].getInstance();
@@ -70,7 +70,7 @@ export class DevCommandManager implements CommandManagerInterface {
 
     loadDevCommands(reloading = false): void {
         //@ts-ignore 2345
-        let dirs = requireDir("../DevCommands", { noCache: true });
+        let dirs = requireDir("../../DevCommands", { noCache: true });
 
         for (let name in dirs) {
             let command = dirs[name].getInstance();
