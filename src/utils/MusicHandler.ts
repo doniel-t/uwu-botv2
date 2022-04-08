@@ -17,28 +17,34 @@ export class MusicHandler {
     }
 
     play(guildId: string) {
-        this.getGuildMusicPlayerFromId(guildId).play();
+        this.tryGetGuildMusicPlayerFromId(guildId)?.play();
     }
 
     pause(guildId: string) {
-        this.getGuildMusicPlayerFromId(guildId).pause();
+        this.tryGetGuildMusicPlayerFromId(guildId)?.pause();
     }
 
     resume(guildId: string) {
-        this.getGuildMusicPlayerFromId(guildId).resume();
+        this.tryGetGuildMusicPlayerFromId(guildId)?.resume();
     }
 
     stop(guildId: string) {
-        this.getGuildMusicPlayerFromId(guildId).stop();
-        this.players.delete(guildId);
+        this.tryGetGuildMusicPlayerFromId(guildId)?.stop();
+        if (this.players.has(guildId)) {
+            this.players.delete(guildId);
+        }
     }
 
     skip(guildId: string): boolean {
-        return this.getGuildMusicPlayerFromId(guildId).skip();
+        return this.tryGetGuildMusicPlayerFromId(guildId)?.skip() ?? false;
     }
 
     getQueueLength(guildId: string): number {
-        return this.getGuildMusicPlayerFromId(guildId).getQueueLength();
+        return this.tryGetGuildMusicPlayerFromId(guildId)?.getQueueLength() ?? 0;
+    }
+
+    private tryGetGuildMusicPlayerFromId(guildId: string): GuildMusicPlayer | undefined {
+        return this.players.get(guildId);
     }
 
     private getGuildMusicPlayerFromId(guildId: string): GuildMusicPlayer {
@@ -47,6 +53,9 @@ export class MusicHandler {
             return this.players.get(guildId);
         }
         let player = new GuildMusicPlayer();
+        player.PlayEnd.on(() => {
+            this.players.delete(guildId);
+        });
         this.players.set(guildId, player);
         return player;
     }
