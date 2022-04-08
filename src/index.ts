@@ -9,7 +9,7 @@ import { GuildSettingsTypes } from './utils/Settings/GuildSettings';
 import { SettingsHandler } from './utils/Settings/SettingsHandler';
 
 import { isAdmin } from './utils/Admin';
-import { EmojiHandler } from './Functions/EmojiHandler';
+import { EmojiHandler } from './utils/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
 import { NameHandler } from './utils/NameHandler';
 import { MusicHandler } from './utils/Music/MusicHandler';
