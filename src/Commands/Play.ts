@@ -17,24 +17,23 @@ class Play extends NormalCommandClass {
         },
     ];
     async reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<void> {
-
+        await interaction.deferReply();
         if (!interaction.member || !interaction.guildId) {
-            interaction.reply({
+            interaction.editReply({
                 content: "Can't play music in DMs"
             });
             return;
         }
         //@ts-ignore
         if (!interaction.member.voice.channelId) {
-            interaction.reply({
+            interaction.editReply({
                 content: "Please join a VoiceChannel"
             });
             return;
         }
-        
+
         let link = interaction.options.getString("link", true);
         let validResource = false;
-        interaction.deferReply();
 
         if (ytdl.validateURL(link)) {
             if (!await musicHandler.addYoutubeToQueue(interaction.guildId, link)) {

@@ -1,31 +1,23 @@
 import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, demuxProbe } from '@discordjs/voice';
 import ytdl from 'ytdl-core';
 import { LiteEvent } from './LiteEvent';
+import { MusicResourceInterface } from './MusicResourceInterface';
+import { YoutubeMusicResource } from './YoutubeMusicResource';
 
 export class GuildMusicPlayer {
     private player: AudioPlayer | undefined;
-    private musicQueue: AudioResource[] = [];
+    private musicQueue: MusicResourceInterface[] = [];
     running = false;
     private readonly onPlayEnd = new LiteEvent<void>();
     public get PlayEnd() { return this.onPlayEnd.expose(); }
-    
-    async addYoutubeToQueue(link: string): Promise<boolean> {
+
+    addYoutubeToQueue(link: string): boolean {
         if (link == undefined || link == "" || link == null) return false;
 
         if (!ytdl.validateURL(link)) return false;
 
-        try {
-            let stream = ytdl(link, {
-                highWaterMark: 1 << 25,
-                filter: 'audioonly'
-            });
-
-            this.musicQueue.push(await probeAndCreateResource(stream));
-            return true;
-        } catch (err) {
-            console.error(err);
-            return false;
-        }
+        this.musicQueue.push(new YoutubeMusicResource(link));
+        return true;
     }
 
     getPlayer(): AudioPlayer {
@@ -48,7 +40,7 @@ export class GuildMusicPlayer {
         return this.player;
     }
 
-    play(): boolean {
+    async play(): Promise<boolean> {
         return this.playNextResource();
     }
 
@@ -60,8 +52,8 @@ export class GuildMusicPlayer {
         this.player?.unpause();
     }
 
-    skip(): boolean {
-        return this.playNextResource();
+    async skip(): Promise<boolean> {
+        return await this.playNextResource();
     }
 
     stop() {
@@ -76,8 +68,8 @@ export class GuildMusicPlayer {
         return this.musicQueue.length;
     }
 
-    private playNextResource(): boolean {
-        let resource = this.popQueue();
+    private async playNextResource(): Promise<boolean> {
+        let resource = await this.popQueue();
         if (resource == undefined) {
             this.stop();
             return false;
@@ -88,11 +80,11 @@ export class GuildMusicPlayer {
         return true;
     }
 
-    private popQueue(): AudioResource | undefined {
+    private async popQueue(): Promise<AudioResource | undefined> {
         if (this.musicQueue.length === 0) {
             return undefined;
         }
-        return this.musicQueue.pop();
+        return await this.musicQueue.pop()?.getResource();
     }
 }
 

@@ -16,8 +16,8 @@ export class MusicHandler {
         return this.getGuildMusicPlayerFromId(guildId).getPlayer();
     }
 
-    play(guildId: string) {
-        this.tryGetGuildMusicPlayerFromId(guildId)?.play();
+    async play(guildId: string): Promise<boolean> {
+        return (await this.tryGetGuildMusicPlayerFromId(guildId)?.play()) ?? false;
     }
 
     pause(guildId: string) {
@@ -35,8 +35,8 @@ export class MusicHandler {
         }
     }
 
-    skip(guildId: string): boolean {
-        return this.tryGetGuildMusicPlayerFromId(guildId)?.skip() ?? false;
+    async skip(guildId: string): Promise<boolean> {
+        return (await this.tryGetGuildMusicPlayerFromId(guildId)?.skip()) ?? false;
     }
 
     getQueueLength(guildId: string): number {
