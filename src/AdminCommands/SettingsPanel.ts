@@ -1,7 +1,7 @@
 import DiscordJS, { Interaction, MessageActionRow, MessageButton } from 'discord.js';
 import { GuildSettings, GuildSettingsTypes } from '../utils/GuildSettings';
 import { settingsHandler } from '../index';
-import { AdminCommandClass } from '../utils/AdminCommand/AdminCommand';
+import { AdminCommandClass } from '../utils/Commands/AdminCommand/AdminCommand';
 import { isAdmin } from '../utils/Admin';
 import { GuildSetting } from 'src/utils/GuildSetting';
 

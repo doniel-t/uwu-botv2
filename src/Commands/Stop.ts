@@ -1,6 +1,6 @@
 import DiscordJS from 'discord.js';
 import { musicHandler } from '../index';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 
 class Stop extends NormalCommandClass {
     name = "stop";

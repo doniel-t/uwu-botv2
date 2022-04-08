@@ -2,7 +2,7 @@ import { joinVoiceChannel } from '@discordjs/voice';
 import DiscordJS from 'discord.js';
 import ytdl from 'ytdl-core';
 import { musicHandler } from '../index';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 
 class Play extends NormalCommandClass {
     name = "play";

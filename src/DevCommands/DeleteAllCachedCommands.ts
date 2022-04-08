@@ -1,7 +1,7 @@
 import { CacheType, CommandInteraction } from 'discord.js';
-import { DevCommandManager } from 'src/utils/DevCommandManager';
+import { DevCommandManager } from '../utils/Commands/DevCommandManager';
 import { commandManager } from '../index';
-import { DevCommandClass } from '../utils/DevCommand/DevCommand';
+import { DevCommandClass } from '../utils/Commands/DevCommand/DevCommand';
 
 class DeleteCachedCommands extends DevCommandClass {
     name = 'delete_all_cached_commands';

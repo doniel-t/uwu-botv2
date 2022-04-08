@@ -1,5 +1,5 @@
 import DiscordJS, { MessageEmbed } from 'discord.js';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { client, nameHandler } from '../index';
 import { WebSocket, MessageEvent } from 'ws';
 import { GameTypes } from '../utils/NameHandler';

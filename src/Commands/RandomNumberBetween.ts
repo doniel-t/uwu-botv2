@@ -1,6 +1,6 @@
 import DiscordJS from 'discord.js';
 import { ApplicationCommandOptionTypes } from 'discord.js/typings/enums';
-import { NormalCommandClass } from '../utils/NormalCommand/NormalCommand';
+import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 
 class RandomNumberBetween extends NormalCommandClass {
     name = "random_number_between";
