@@ -49,7 +49,7 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
         let data = event.data.toString();
 
         if (data.startsWith('ERROR')) {
-            callback(new MessageEmbed().setTitle('No recent score found!').setColor('#ff0000'));
+            callback(new MessageEmbed().setTitle(data).setColor('#ff0000'));
             return;
         }
 
