@@ -1,17 +1,18 @@
 import { joinVoiceChannel } from '@discordjs/voice';
 import DiscordJS from 'discord.js';
 import ytdl from 'ytdl-core';
+import ytpl from 'ytpl';
 import { musicHandler } from '../index';
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 
 class Play extends NormalCommandClass {
     name = "play";
     shortcut = "p";
-    description = "Plays a song from youtube";
+    description = "Plays a song or playlist from youtube";
     options = [
         {
             name: "link",
-            description: "Youtube Link",
+            description: "Link",
             required: true,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
         },
@@ -38,6 +39,13 @@ class Play extends NormalCommandClass {
         if (ytdl.validateURL(link)) {
             if (!await musicHandler.addYoutubeToQueue(interaction.guildId, link)) {
                 interaction.editReply({ content: "Failed to add YouTube song" });
+                return;
+            }
+            validResource = true;
+        }
+        if (ytpl.validateID(link)) {
+            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link)) {
+                interaction.editReply({ content: "Failed to add YouTube playlist" });
                 return;
             }
             validResource = true;

@@ -25,7 +25,8 @@
     "ping": "^0.4.1",
     "require-dir": "^1.2.0",
     "ws": "^8.5.0",
-    "ytdl-core": "^4.11.0"
+    "ytdl-core": "^4.11.0",
+    "ytpl": "^2.3.0"
   },
   "devDependencies": {
     "@types/ping": "^0.4.1",

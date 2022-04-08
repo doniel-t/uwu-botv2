@@ -1,8 +1,10 @@
 import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, demuxProbe } from '@discordjs/voice';
 import ytdl from 'ytdl-core';
+import ytpl from 'ytpl';
 import { LiteEvent } from '../LiteEvent';
 import { MusicResourceInterface } from './MusicResourceInterface';
 import { YoutubeMusicResource } from './YoutubeMusicResource';
+import { YouTubePlaylistHandler } from './YouTubePlaylistHandler';
 
 export class GuildMusicPlayer {
     private player: AudioPlayer | undefined;
@@ -17,6 +19,21 @@ export class GuildMusicPlayer {
         if (!ytdl.validateURL(link)) return false;
 
         this.musicQueue.push(new YoutubeMusicResource(link));
+        return true;
+    }
+
+    async addYoutubePlaylistToQueue(link: string): Promise<boolean> {
+        if (link == undefined || link == "" || link == null) return false;
+
+        if (!ytpl.validateID(link)) return false;
+
+        let playlist = await new YouTubePlaylistHandler(link).getSongs();
+
+        if (playlist == undefined) return false;
+
+        playlist.forEach(song => {
+            this.musicQueue.push(song);
+        });
         return true;
     }
 

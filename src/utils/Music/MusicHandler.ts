@@ -12,6 +12,10 @@ export class MusicHandler {
         return await this.getGuildMusicPlayerFromId(guildId).addYoutubeToQueue(link);
     }
 
+    async addYoutubePlaylistToQueue(guildId: string, link: string): Promise<boolean> {
+        return await this.getGuildMusicPlayerFromId(guildId).addYoutubePlaylistToQueue(link);
+    }
+
     getPlayer(guildId: string): AudioPlayer {
         return this.getGuildMusicPlayerFromId(guildId).getPlayer();
     }
