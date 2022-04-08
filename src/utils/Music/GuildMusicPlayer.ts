@@ -1,4 +1,4 @@
-import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, demuxProbe } from '@discordjs/voice';
+import { AudioPlayer, AudioPlayerStatus, createAudioPlayer } from '@discordjs/voice';
 import ytdl from 'ytdl-core';
 import ytpl from 'ytpl';
 import { LiteEvent } from '../LiteEvent';
@@ -22,12 +22,12 @@ export class GuildMusicPlayer {
         return true;
     }
 
-    async addYoutubePlaylistToQueue(link: string): Promise<boolean> {
+    async addYoutubePlaylistToQueue(link: string, random: boolean): Promise<boolean> {
         if (link == undefined || link == "" || link == null) return false;
 
         if (!ytpl.validateID(link)) return false;
 
-        let playlist = await new YouTubePlaylistHandler(link).getSongs();
+        let playlist = await new YouTubePlaylistHandler(link).getSongs(random);
 
         if (playlist == undefined) return false;
 
@@ -58,7 +58,7 @@ export class GuildMusicPlayer {
     }
 
     async play(): Promise<boolean> {
-        return this.playNextResource();
+        return this.playNextResource() !== undefined;
     }
 
     pause() {
@@ -69,8 +69,9 @@ export class GuildMusicPlayer {
         this.player?.unpause();
     }
 
-    async skip(): Promise<boolean> {
-        return await this.playNextResource();
+    async skip(): Promise<string | undefined> {
+        let nextSong = await this.playNextResource();
+        return nextSong ? nextSong.getName() : undefined;
     }
 
     stop() {
@@ -85,27 +86,22 @@ export class GuildMusicPlayer {
         return this.musicQueue.length;
     }
 
-    private async playNextResource(): Promise<boolean> {
-        let resource = await this.popQueue();
-        if (resource == undefined) {
+    private async playNextResource(): Promise<MusicResourceInterface | undefined> {
+        let musicResource = await this.popQueue();
+        if (musicResource == undefined) {
             this.stop();
-            return false;
+            return undefined;
         }
         //@ts-ignore 2345
-        this.player?.play(resource);
+        this.player?.play(await musicResource.getAudioResource());
         this.running = true;
-        return true;
+        return musicResource;
     }
 
-    private async popQueue(): Promise<AudioResource | undefined> {
+    private async popQueue(): Promise<MusicResourceInterface | undefined> {
         if (this.musicQueue.length === 0) {
             return undefined;
         }
-        return await this.musicQueue.pop()?.getResource();
+        return await this.musicQueue.pop();
     }
-}
-
-async function probeAndCreateResource(readableStream: any) {
-    const { stream, type } = await demuxProbe(readableStream);
-    return createAudioResource(stream, { inputType: type });
 }

@@ -12,8 +12,8 @@ export class MusicHandler {
         return await this.getGuildMusicPlayerFromId(guildId).addYoutubeToQueue(link);
     }
 
-    async addYoutubePlaylistToQueue(guildId: string, link: string): Promise<boolean> {
-        return await this.getGuildMusicPlayerFromId(guildId).addYoutubePlaylistToQueue(link);
+    async addYoutubePlaylistToQueue(guildId: string, link: string, random: boolean = false): Promise<boolean> {
+        return await this.getGuildMusicPlayerFromId(guildId).addYoutubePlaylistToQueue(link,random);
     }
 
     getPlayer(guildId: string): AudioPlayer {
@@ -39,8 +39,8 @@ export class MusicHandler {
         }
     }
 
-    async skip(guildId: string): Promise<boolean> {
-        return (await this.tryGetGuildMusicPlayerFromId(guildId)?.skip()) ?? false;
+    async skip(guildId: string): Promise<string> {
+        return await this.tryGetGuildMusicPlayerFromId(guildId)?.skip() ?? "";
     }
 
     getQueueLength(guildId: string): number {

@@ -13,8 +13,9 @@ class Next extends NormalCommandClass {
             return;
         }
         await interaction.deferReply();
-        if (await musicHandler.skip(interaction.guildId)) {
-            interaction.editReply({ content: "Next Song Playing" });
+        let nextSong = await musicHandler.skip(interaction.guildId);
+        if (nextSong !== undefined) {
+            interaction.editReply({ content: `Playing ${nextSong}` });
         } else {
             interaction.editReply({ content: "No more songs in queue" });
         }

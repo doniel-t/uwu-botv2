@@ -1,5 +1,6 @@
 import { AudioResource } from "@discordjs/voice";
 
 export interface MusicResourceInterface {
-    getResource(): Promise<AudioResource<unknown>>;
+    getName(): string;
+    getAudioResource(): Promise<AudioResource<unknown>>;
 }

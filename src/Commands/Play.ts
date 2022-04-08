@@ -16,6 +16,12 @@ class Play extends NormalCommandClass {
             required: true,
             type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
         },
+        {
+            name: "random",
+            description: "If true, the added playlist will be shuffled",
+            required: false,
+            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+        },
     ];
     async reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<void> {
         await interaction.deferReply();
@@ -44,7 +50,7 @@ class Play extends NormalCommandClass {
             validResource = true;
         }
         if (ytpl.validateID(link)) {
-            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link)) {
+            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.getBoolean("random", false) ?? false)) {
                 interaction.editReply({ content: "Failed to add YouTube playlist" });
                 return;
             }

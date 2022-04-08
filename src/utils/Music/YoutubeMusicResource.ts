@@ -9,8 +9,11 @@ export class YoutubeMusicResource implements MusicResourceInterface {
     constructor(link:string) {
         this.link = link;
     }
+    getName(): string {
+        return this.link;
+    }
 
-    async getResource(): Promise<AudioResource<unknown>> {
+    async getAudioResource(): Promise<AudioResource<unknown>> {
         let stream = ytdl(this.link, {
             highWaterMark: 1 << 25,
             filter: 'audioonly'
