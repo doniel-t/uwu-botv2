@@ -1,4 +1,4 @@
-import { joinVoiceChannel } from '@discordjs/voice';
+import { createAudioPlayer, joinVoiceChannel } from '@discordjs/voice';
 import DiscordJS from 'discord.js';
 import { SoundCloudMusicResource } from '../utils/Music/SoundCloudMusicResource';
 import ytdl from 'ytdl-core';
@@ -40,37 +40,44 @@ class Play extends NormalCommandClass {
             return;
         }
 
-        let link = interaction.options.getString("link", true);
-        let validResource = false;
-
-        if (ytdl.validateURL(link)) {
-            if (!await musicHandler.addYoutubeToQueue(interaction.guildId, link)) {
-                interaction.editReply({ content: "Failed to add YouTube song" });
-                return;
-            }
-            validResource = true;
-        }
-        if (ytpl.validateID(link)) {
-            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.getBoolean("random", false) ?? false)) {
-                interaction.editReply({ content: "Failed to add YouTube playlist" });
-                return;
-            }
-            validResource = true;
-        }
-        if (SoundCloudMusicResource.validateURL(link)) {
-            if (!await musicHandler.addSoundCloundToQueue(interaction.guildId, link)) {
-                interaction.editReply({ content: "Failed to add Soundcloud song" });
-                return;
-            }
-            validResource = true;
-        }
-        //Add other resources here like ytpl or soundcloud
-
-        if (!validResource) {
+        if (!await this.tryAddToQueue(interaction)) {
             interaction.editReply({ content: "Not a supported Link" });
             return;
         }
 
+        this.createAudioPlayer(interaction);
+    }
+
+    private async tryAddToQueue(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<boolean> {
+        if (!interaction.guildId) return false;
+        let link = interaction.options.getString("link", true);
+
+        if (ytdl.validateURL(link)) {
+            if (!await musicHandler.addYoutubeToQueue(interaction.guildId, link)) {
+                interaction.editReply({ content: "Failed to add YouTube song" });
+                return false;
+            }
+            return true;
+        }
+        if (ytpl.validateID(link)) {
+            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.getBoolean("random", false) ?? false)) {
+                interaction.editReply({ content: "Failed to add YouTube playlist" });
+                return false;
+            }
+            return true;
+        }
+        if (SoundCloudMusicResource.validateURL(link)) {
+            if (!await musicHandler.addSoundCloundToQueue(interaction.guildId, link)) {
+                interaction.editReply({ content: "Failed to add Soundcloud song" });
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private createAudioPlayer(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+        if (!interaction.guildId) return;
         let connection = joinVoiceChannel({
             //@ts-ignore
             channelId: interaction.member.voice.channelId,
