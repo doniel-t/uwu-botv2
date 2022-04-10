@@ -1,5 +1,6 @@
 import { joinVoiceChannel } from '@discordjs/voice';
 import DiscordJS from 'discord.js';
+import { SoundCloudMusicResource } from '../utils/Music/SoundCloudMusicResource';
 import ytdl from 'ytdl-core';
 import ytpl from 'ytpl';
 import { musicHandler } from '../index';
@@ -8,7 +9,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class Play extends NormalCommandClass {
     name = "play";
     shortcut = "p";
-    description = "Plays a song or playlist from youtube";
+    description = "Plays a song from the link provided, see /musicsupport for more info";
     options = [
         {
             name: "link",
@@ -52,6 +53,13 @@ class Play extends NormalCommandClass {
         if (ytpl.validateID(link)) {
             if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.getBoolean("random", false) ?? false)) {
                 interaction.editReply({ content: "Failed to add YouTube playlist" });
+                return;
+            }
+            validResource = true;
+        }
+        if (SoundCloudMusicResource.validateURL(link)) {
+            if (!await musicHandler.addSoundCloundToQueue(interaction.guildId, link)) {
+                interaction.editReply({ content: "Failed to add Soundcloud song" });
                 return;
             }
             validResource = true;
