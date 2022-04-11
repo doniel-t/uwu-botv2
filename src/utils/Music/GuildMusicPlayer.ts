@@ -3,6 +3,7 @@ import ytdl from 'ytdl-core';
 import ytpl from 'ytpl';
 import { LiteEvent } from '../LiteEvent';
 import { MusicResourceInterface } from './MusicResourceInterface';
+import { SoundCloudMusicResource } from './SoundCloudMusicResource';
 import { YoutubeMusicResource } from './YoutubeMusicResource';
 import { YouTubePlaylistHandler } from './YouTubePlaylistHandler';
 
@@ -34,6 +35,15 @@ export class GuildMusicPlayer {
         playlist.forEach(song => {
             this.musicQueue.push(song);
         });
+        return true;
+    }
+
+    addSoundCloundToQueue(link: string): boolean {
+        if (link == undefined || link == "" || link == null) return false;
+
+        if (!SoundCloudMusicResource.validateURL(link)) return false;
+
+        this.musicQueue.push(new SoundCloudMusicResource(link));
         return true;
     }
 
