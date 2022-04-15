@@ -39,7 +39,8 @@ export class GuildSettings {
 }
 
 export enum GuildSettingsTypes {
-    EMOJI_DETECTION
+    EMOJI_DETECTION,
+    PREFIX
 }
 
 const defaultSettings = {
@@ -48,6 +49,12 @@ const defaultSettings = {
         friendlyName: "Emoji Detection",
         constructor: Boolean,
         default: false
+    },
+    [GuildSettingsTypes.PREFIX]: {
+        name: "prefix",
+        friendlyName: "Prefix",
+        constructor: String,
+        default: "!"
     }
 }
 
