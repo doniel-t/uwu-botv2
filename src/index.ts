@@ -13,6 +13,7 @@ import { EmojiHandler } from './utils/EmojiHandler';
 import { FileHandler } from './utils/FileHandler';
 import { NameHandler } from './utils/NameHandler';
 import { MusicHandler } from './utils/Music/MusicHandler';
+import { messageToInteraction } from './utils/MessageToInteraction';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -72,7 +73,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
     }
     try {
-        await command.reply(interaction);        
+        await command.reply(interaction);
     } catch (error) {
         console.log(error);
         interaction.reply({
@@ -82,8 +83,25 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.guild !== null && settingsHandler.get(message.guild.id,GuildSettingsTypes.EMOJI_DETECTION)?.value) {
+    if (message.guild == null) return;
+
+    if (settingsHandler.get(message.guild.id, GuildSettingsTypes.EMOJI_DETECTION)?.value) {
         emojiHandler.proccessMessage(message);
+    }
+
+    let prefix = settingsHandler.get(message.guild.id, GuildSettingsTypes.PREFIX)?.value as string;
+    if (message.content.startsWith(prefix)) {
+        let command = commandManager.getCommandByName(message.content.split(" ")[0].slice(prefix.length));
+        if (command) {
+            try {
+                await command.reply(messageToInteraction(message));
+            } catch (error) {
+                console.log(error);
+                message.channel?.send({
+                    content: 'An error occured!'
+                });
+            }
+        }
     }
 });
 
