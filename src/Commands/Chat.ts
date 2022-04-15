@@ -36,6 +36,9 @@ class Chat extends NormalCommandClass {
             default:
                 cleverbot(message).then(ans => {
                     callback(message + "\n**" + ans + "**");
+                }).catch((err) => {
+                    console.log(err);
+                    callback(message + "\n**I died.**");
                 });
         }
     }
