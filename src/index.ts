@@ -94,7 +94,7 @@ client.on('messageCreate', async (message: Message) => {
         let command = commandManager.getCommandByName(message.content.split(" ")[0].slice(prefix.length));
         if (command) {
             try {
-                await command.reply(messageToInteraction(message));
+                await command.reply(messageToInteraction(message,command.options?.length));
             } catch (error) {
                 console.log(error);
                 message.channel?.send({

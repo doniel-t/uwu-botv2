@@ -1,13 +1,24 @@
 import DiscordJS, { Message } from "discord.js";
 
-export function messageToInteraction(message: Message): DiscordJS.CommandInteraction<DiscordJS.CacheType> {
-    function getOption(content: string) {
+export function messageToInteraction(message: Message, numberOfOptions: number | undefined): DiscordJS.CommandInteraction<DiscordJS.CacheType> {
+    let optionsCache: any = {};
+    function getOption(name: string, content: string) {
+        if (numberOfOptions == undefined || numberOfOptions == 0) return [null, content];
+        if (optionsCache[name]) return [optionsCache[name], content];
+
         let array = content.split(" ");
         if (array.length < 2)
             return [null, content];
-        let first = array.shift();
-        let second = array.shift();
-        return [second ?? null, (first + " " + array.join(" ")) ?? ""];
+
+        let command = array.shift();
+
+        if (numberOfOptions == 1) {
+            optionsCache[name] = array.join(" ");
+            return [optionsCache[name], command];
+        }
+
+        optionsCache[name] = array.shift();
+        return [optionsCache[name] ?? null, (command + " " + array.join(" ")) ?? ""];
     }
     let firstReply: DiscordJS.Message<boolean> | undefined = undefined;
     let interaction = {
@@ -18,37 +29,37 @@ export function messageToInteraction(message: Message): DiscordJS.CommandInterac
         channel: message.channel,
         options: {
             get: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
             },
             getBoolean: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
             },
             getInteger: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
             },
             getNumber: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
             },
             getString: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
             },
             getSubcommand: (name: string, required = false) => {
-                let result = getOption(message.content);
+                let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
                 return result[0];
