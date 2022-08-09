@@ -5,7 +5,7 @@ class Version extends DevCommandClass {
     name = "version";
     shortcut = "v";
     description = "Replies with the current version of the bot";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         interaction.reply({ content: require("../../package.json").version });
     }
 }

@@ -1,6 +1,6 @@
 import DiscordJS, { Message } from "discord.js";
 
-export function messageToInteraction(message: Message, numberOfOptions: number | undefined): DiscordJS.CommandInteraction<DiscordJS.CacheType> {
+export function messageToInteraction(message: Message, numberOfOptions: number | undefined): DiscordJS.CommandInteraction {
     let optionsCache: any = {};
     function getOption(name: string, content: string) {
         if (numberOfOptions == undefined || numberOfOptions == 0) return [null, content];
@@ -75,5 +75,5 @@ export function messageToInteraction(message: Message, numberOfOptions: number |
             }
         },
     }
-    return interaction as unknown as DiscordJS.CommandInteraction<DiscordJS.CacheType>;
+    return interaction as unknown as DiscordJS.CommandInteraction;
 }

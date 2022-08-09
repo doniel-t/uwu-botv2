@@ -5,7 +5,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class Next extends NormalCommandClass {
     name = "next";
     description = "Plays next song in music queue";
-    async reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<void> {
+    async reply(interaction: DiscordJS.CommandInteraction): Promise<void> {
         if (!interaction.guildId) {
             interaction.reply({
                 content: "Please join a VoiceChannel"

@@ -1,4 +1,4 @@
-import DiscordJS, { Intents, Interaction, Message } from 'discord.js';
+import DiscordJS, { GatewayIntentBits, Interaction, Message } from 'discord.js';
 import dotenv from 'dotenv';
 
 import { CommandManagerInterface } from './utils/Commands/CommandManagerInterface';
@@ -21,10 +21,10 @@ export const devMode = process.argv.includes("dev");
 
 export const client = new DiscordJS.Client({
     intents: [
-        Intents.FLAGS.GUILDS,
-        Intents.FLAGS.GUILD_MESSAGES,
-        Intents.FLAGS.DIRECT_MESSAGES,
-        Intents.FLAGS.GUILD_VOICE_STATES,
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildVoiceStates
     ]
 });
 
@@ -94,7 +94,7 @@ client.on('messageCreate', async (message: Message) => {
         let command = commandManager.getCommandByName(message.content.split(" ")[0].slice(prefix.length));
         if (command) {
             try {
-                await command.reply(messageToInteraction(message,command.options?.length));
+                await command.reply(messageToInteraction(message, command.options?.length));
             } catch (error) {
                 console.log(error);
                 message.channel?.send({

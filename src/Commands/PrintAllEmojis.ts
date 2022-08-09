@@ -5,7 +5,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class PrintAllEmojis extends NormalCommandClass {
     name = "print_all_emojis";
     description = "Prints all emojis in the bot";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         let response = "";
         client.emojis.cache.forEach(emoji => {
             if (response.length >= 1900) {

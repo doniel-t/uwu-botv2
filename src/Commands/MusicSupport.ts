@@ -4,7 +4,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class MusicSupport extends NormalCommandClass {
     name = "musicsupport";
     description = "Shows the music sites supported by the bot";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         interaction.reply({ content: MusicSupport.sites.join("\n") });
     }
     static sites = [

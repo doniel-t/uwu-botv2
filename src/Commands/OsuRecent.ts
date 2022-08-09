@@ -1,4 +1,4 @@
-import DiscordJS, { MessageEmbed } from 'discord.js';
+import DiscordJS, { EmbedBuilder, ApplicationCommandOptionType } from 'discord.js';
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { client, nameHandler } from '../index';
 import { WebSocket, MessageEvent } from 'ws';
@@ -12,12 +12,12 @@ class OsuRecent extends NormalCommandClass {
             name: "username",
             description: "Username of the user",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+            type: ApplicationCommandOptionType.String,
         },
     ];
-    async reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<void> {
-        await interaction.reply({ embeds: [new MessageEmbed().setTitle("Loading...")] });
-        getRecentScore(interaction, (embed: MessageEmbed) => {
+    async reply(interaction: DiscordJS.CommandInteraction): Promise<void> {
+        await interaction.reply({ embeds: [new EmbedBuilder().setTitle("Loading...")] });
+        getRecentScore(interaction, (embed: EmbedBuilder) => {
             interaction.editReply({ embeds: [embed] });
         });
     }
@@ -25,12 +25,12 @@ class OsuRecent extends NormalCommandClass {
 
 export function getInstance() { return new OsuRecent() };
 
-function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>, callback: (messageEmbed: MessageEmbed) => void) {
+function getRecentScore(interaction: DiscordJS.CommandInteraction, callback: (messageEmbed: EmbedBuilder) => void) {
 
     let name = getName(interaction);
 
     if (!name) {
-        callback(new MessageEmbed().setTitle('Please provide a username').setColor('#ff0000'));
+        callback(new EmbedBuilder().setTitle('Please provide a username').setColor('#ff0000'));
         return;
     }
 
@@ -41,7 +41,7 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
     };
 
     ws.onerror = function error() {
-        callback(new MessageEmbed().setTitle('Websocket-Server is unreachable').setColor('#ff0000'));
+        callback(new EmbedBuilder().setTitle('Websocket-Server is unreachable').setColor('#ff0000'));
     };
 
     ws.onmessage = function incoming(event: MessageEvent) { //Answer
@@ -49,14 +49,14 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
         let data = event.data.toString();
 
         if (data.startsWith('ERROR')) {
-            callback(new MessageEmbed().setTitle(data).setColor('#ff0000'));
+            callback(new EmbedBuilder().setTitle(data).setColor('#ff0000'));
             return;
         }
 
         let result = JSON.parse(data);
 
         if (result.length == 0) {
-            callback(new MessageEmbed().setTitle('No recent score found').setColor('#ff0000'));
+            callback(new EmbedBuilder().setTitle('No recent score found').setColor('#ff0000'));
             return;
         }
 
@@ -75,42 +75,46 @@ function getRecentScore(interaction: DiscordJS.CommandInteraction<DiscordJS.Cach
         let percentagePassed = (ScoreCount / ObjectCount) * 100;
         if (percentagePassed == 100 && ScoreCount !== ObjectCount) percentagePassed = 99.99;
 
-        let emb = new MessageEmbed()
+        let emb = new EmbedBuilder()
             .setTitle(recentScore.beatmapset.artist + ' - ' + recentScore.beatmapset.title)
             .setURL(recentScore.beatmap.url)
             .setColor('#0099ff')
             .setFooter({ text: recentScore.created_at })
-            .addField('Score', recentScore.score.toString(), true)
-            .addField('Combo', recentScore.max_combo.toString(), true)
-            .addField('BPM', recentScore.beatmap.bpm.toString(), true)
-            .addField('Status', recentScore.beatmap.status, true)
-            .addField('Passed%', percentagePassed.toFixed(2).concat("%"), true)
+            .addFields([
+                { name: 'Score', value: recentScore.score.toString(), inline: true },
+                { name: 'Combo', value: recentScore.max_combo.toString(), inline: true },
+                { name: 'BPM', value: recentScore.beatmap.bpm.toString(), inline: true },
+                { name: 'Status', value: recentScore.beatmap.status, inline: true },
+                { name: 'Passed%', value: percentagePassed.toFixed(2).concat("%"), inline: true },
+            ]);
         if (recentScore.mods.length > 0) {
-            emb.addField('Mods', recentScore.mods.reduce((name: string) => name + " "), true);
+            emb.addFields({ name: 'Mods', value: recentScore.mods.reduce((name: string) => name + " "), inline: true });
         } else {
-            emb.addField('\u200b', '\u200b', true);
+            emb.addFields({ name: '\u200b', value: '\u200b', inline: true });
         }
 
-        emb.addField('Difficulty', recentScore.beatmap.version, true)
-            .addField('StarRating', parseFloat(recentScore.beatmap.difficulty_rating.toString()).toFixed(2), true)
-        emb.addField('\u200b', '\u200b', true);
+        emb.addFields([
+            { name: 'Difficulty', value: recentScore.beatmap.version, inline: true },
+            { name: 'StarRating', value: parseFloat(recentScore.beatmap.difficulty_rating.toString()).toFixed(2), inline: true },
+            { name: '\u200b', value: '\u200b', inline: true },
+            { name: 'Accuracy', value: Acc + '%', inline: true },
+            {
+                name: 'Hits', value: recentScore.statistics.count_300.toString().concat(getEmoji('hit300') + " ")
+                    .concat(recentScore.statistics.count_100).concat(getEmoji('hit100') + " ")
+                    .concat(recentScore.statistics.count_50).concat(getEmoji('hit50') + " ")
+                    .concat(recentScore.statistics.count_miss).concat(getEmoji('hit0')), inline: true
+            }
+        ]);
 
-
-        emb.addField('Accuracy', Acc + '%', true)
-            .addField('Hits', recentScore.statistics.count_300.toString().concat(getEmoji('hit300') + " ")
-                .concat(recentScore.statistics.count_100).concat(getEmoji('hit100') + " ")
-                .concat(recentScore.statistics.count_50).concat(getEmoji('hit50') + " ")
-                .concat(recentScore.statistics.count_miss).concat(getEmoji('hit0')), true)
-
-            .setImage('https://assets.ppy.sh/beatmaps/' + recentScore.beatmapset.id + '/covers/cover.jpg');
+        emb.setImage('https://assets.ppy.sh/beatmaps/' + recentScore.beatmapset.id + '/covers/cover.jpg');
         ws.close();
 
         callback(emb);
     };
 }
 
-function getName(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>) {
-    let name = interaction.options.getString("username");
+function getName(interaction: DiscordJS.CommandInteraction) {
+    let name = interaction.options.get("username")?.value;
     if (name == null) {
         //@ts-ignore 2322
         name = nameHandler.get(interaction.user.id, interaction.guildId, GameTypes.OSU);

@@ -1,4 +1,4 @@
-import DiscordJS, { CacheType, CommandInteraction } from 'discord.js';
+import { CommandInteraction, ApplicationCommandOptionType } from 'discord.js';
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import cleverbot from 'cleverbot-free';
 
@@ -10,11 +10,11 @@ class Chat extends NormalCommandClass {
             name: 'message',
             description: 'Your message',
             required: true,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+            type: ApplicationCommandOptionType.String,
         }
     ]
 
-    reply(interaction: CommandInteraction<CacheType>): void {
+    reply(interaction: CommandInteraction): void {
         this.getContent(interaction, (answer: string) => {
             interaction.reply(
                 {
@@ -24,22 +24,25 @@ class Chat extends NormalCommandClass {
     }
 
     //returns the string response from the command
-    getContent(interaction: CommandInteraction<CacheType>, callback: Function): void {
-        const message: string | null = interaction.options.getString("message");
+    getContent(interaction: CommandInteraction, callback: Function): void {
+        const message = interaction.options.get("message", true).value;
 
-        switch (message) {
-            case "":
-            case undefined:
-            case null:
-                callback("I can't hear you!");
+        switch (typeof message) {
+            case "string":
+                if (message.length > 0) {
+                    cleverbot(message).then(ans => {
+                        callback(message + "\n**" + ans + "**");
+                    }).catch((err) => {
+                        console.log(err);
+                        callback(message + "\n**I died.**");
+                    });
+                } else {
+                    callback("**I'm not sure what you want me to say.**");
+                }
                 break;
             default:
-                cleverbot(message).then(ans => {
-                    callback(message + "\n**" + ans + "**");
-                }).catch((err) => {
-                    console.log(err);
-                    callback(message + "\n**I died.**");
-                });
+                callback("I can't hear you!");
+                break;
         }
     }
 }

@@ -8,7 +8,7 @@ class ReloadDev extends DevCommandClass {
     shortcut = "rd";
     description = "Reloads Command Cache of DevServer";
     reloadable = false;
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         (commandManager as DevCommandManager).reloadDevCommands();
         interaction.reply({ content: "Done" });
     }

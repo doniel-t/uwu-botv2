@@ -5,7 +5,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class Resume extends NormalCommandClass {
     name = "resume";
     description = "Resumes the music";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         if (!interaction.guildId) {
             interaction.reply({
                 content: "Please join a VoiceChannel"
