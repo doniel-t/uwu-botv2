@@ -6,7 +6,7 @@ class Ping extends NormalCommandClass {
     name = "ping";
     description = "Pings different Servers";
     servers = ['status.discordapp.com', 'google.com'];
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         let answer = '';
         let nRecieved = 0;
         let nAnswers = this.servers.length;

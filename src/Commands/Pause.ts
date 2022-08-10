@@ -5,7 +5,7 @@ import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalComman
 class Pause extends NormalCommandClass {
     name = "pause";
     description = "Pauses the music";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         if (!interaction.guildId) {
             interaction.reply({
                 content: "Please join a VoiceChannel"

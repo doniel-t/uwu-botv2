@@ -1,4 +1,4 @@
-import DiscordJS from 'discord.js';
+import DiscordJS, { ApplicationCommandOptionType, ApplicationCommandType } from "discord.js";
 import { nameHandler } from '../index';
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
 import { GameTypes } from '../utils/NameHandler';
@@ -11,13 +11,13 @@ class Name extends NormalCommandClass {
             name: "get",
             description: "Gets username for game",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.SUB_COMMAND,
+            type: ApplicationCommandOptionType.Subcommand,
             options: [
                 {
                     name: "game",
                     description: "Which game to get the username for",
                     required: true,
-                    type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+                    type: ApplicationCommandOptionType.String,
                 },
             ]
         },
@@ -25,19 +25,19 @@ class Name extends NormalCommandClass {
             name: "set",
             description: "Sets username for game",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.SUB_COMMAND,
+            type: ApplicationCommandOptionType.Subcommand,
             options: [
                 {
                     name: "game",
                     description: "Which game to set the username for",
                     required: true,
-                    type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+                    type: ApplicationCommandOptionType.String,
                 },
                 {
                     name: "name",
                     description: "Which name to set",
                     required: true,
-                    type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+                    type: ApplicationCommandOptionType.String,
                 },
             ]
         },
@@ -45,13 +45,13 @@ class Name extends NormalCommandClass {
             name: "remove",
             description: "Removes username for game",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.SUB_COMMAND,
+            type: ApplicationCommandOptionType.Subcommand,
             options: [
                 {
                     name: "game",
                     description: "Which game to remove the username for",
                     required: true,
-                    type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+                    type: ApplicationCommandOptionType.String,
                 }
             ]
         },
@@ -59,10 +59,10 @@ class Name extends NormalCommandClass {
             name: "get_all_games",
             description: "Returns the list of games",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.SUB_COMMAND
+            type: ApplicationCommandOptionType.Subcommand
         },
     ];
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.ChatInputCommandInteraction): void {
 
         if (interaction.options.getSubcommand() === "get_all_games") {
             interaction.reply({ content: Object.keys(GameTypes).join(", ").toLowerCase() });
@@ -76,7 +76,7 @@ class Name extends NormalCommandClass {
             return;
         }
 
-        if (!(Object.values(GameTypes).includes(interaction.options.getString("game") as GameTypes))) {
+        if (!(Object.values(GameTypes).includes(interaction.options.get("game", true).value as GameTypes))) {
             interaction.reply({
                 content: "Invalid game",
             });
@@ -102,23 +102,23 @@ class Name extends NormalCommandClass {
 
 export function getInstance() { return new Name() };
 
-function getHandler(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>) {
-    let name = nameHandler.get(interaction.user.id, interaction.guildId as string, interaction.options.getString("game") as GameTypes);
+function getHandler(interaction: DiscordJS.CommandInteraction) {
+    let name = nameHandler.get(interaction.user.id, interaction.guildId as string, interaction.options.get("game")?.value as GameTypes);
     interaction.reply({
-        content: name ? `Your name for ${interaction.options.getString("game")} is ${name}` : `You don't have a name set for ${interaction.options.getString("game")}`,
+        content: name ? `Your name for ${interaction.options.get("game")?.value} is ${name}` : `You don't have a name set for ${interaction.options.get("game")?.value}`,
     });
 }
 
-function setHandler(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>) {
-    nameHandler.set(interaction.user.id, interaction.guildId as string, interaction.options.getString("game") as GameTypes, interaction.options.getString("name") as string);
+function setHandler(interaction: DiscordJS.CommandInteraction) {
+    nameHandler.set(interaction.user.id, interaction.guildId as string, interaction.options.get("game")?.value as GameTypes, interaction.options.get("name")?.value as string);
     interaction.reply({
-        content: `Your name for ${interaction.options.getString("game")} has been set to ${interaction.options.getString("name")}`,
+        content: `Your name for ${interaction.options.get("game")?.value} has been set to ${interaction.options.get("name")?.value}`,
     });
 }
 
-function removeHandler(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>) {
-    nameHandler.remove(interaction.user.id, interaction.guildId as string, interaction.options.getString("game") as GameTypes);
+function removeHandler(interaction: DiscordJS.CommandInteraction) {
+    nameHandler.remove(interaction.user.id, interaction.guildId as string, interaction.options.get("game")?.value as GameTypes);
     interaction.reply({
-        content: `Your name for ${interaction.options.getString("game")} has been removed`,
+        content: `Your name for ${interaction.options.get("game")?.value} has been removed`,
     });
 }

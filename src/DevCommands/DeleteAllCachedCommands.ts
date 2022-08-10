@@ -8,7 +8,7 @@ class DeleteCachedCommands extends DevCommandClass {
     description = 'deletes all cached commands and reloads them';
     options = []
     reloadable = false;
-    reply(interaction: CommandInteraction<CacheType>): void {
+    reply(interaction: CommandInteraction): void {
         (commandManager as DevCommandManager).deleteCachedCommands();
         commandManager.loadCommands();
 
@@ -18,7 +18,7 @@ class DeleteCachedCommands extends DevCommandClass {
     }
 
     //returns the string response from the command
-    getContent(interaction: CommandInteraction<CacheType>): string {
+    getContent(interaction: CommandInteraction): string {
         return "Cleared all globally cached commands and reloaded them\nThis may take up to an hour";
     }
 }

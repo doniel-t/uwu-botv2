@@ -1,5 +1,5 @@
-import { createAudioPlayer, joinVoiceChannel } from '@discordjs/voice';
-import DiscordJS from 'discord.js';
+import { joinVoiceChannel } from '@discordjs/voice';
+import DiscordJS, { ApplicationCommandOptionType } from 'discord.js';
 import { SoundCloudMusicResource } from '../utils/Music/SoundCloudMusicResource';
 import ytdl from 'ytdl-core';
 import ytpl from 'ytpl';
@@ -15,16 +15,16 @@ class Play extends NormalCommandClass {
             name: "link",
             description: "Link",
             required: true,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+            type: ApplicationCommandOptionType.String,
         },
         {
             name: "random",
             description: "If true, the added playlist will be shuffled",
             required: false,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+            type: ApplicationCommandOptionType.String,
         },
     ];
-    async reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<void> {
+    async reply(interaction: DiscordJS.CommandInteraction): Promise<void> {
         await interaction.deferReply();
         if (!interaction.member || !interaction.guildId) {
             interaction.editReply({
@@ -48,9 +48,9 @@ class Play extends NormalCommandClass {
         this.createAudioPlayer(interaction);
     }
 
-    private async tryAddToQueue(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): Promise<boolean> {
+    private async tryAddToQueue(interaction: DiscordJS.CommandInteraction): Promise<boolean> {
         if (!interaction.guildId) return false;
-        let link = interaction.options.getString("link", true);
+        let link = interaction.options.get("link", true).value as string;
 
         if (ytdl.validateURL(link)) {
             if (!await musicHandler.addYoutubeToQueue(interaction.guildId, link)) {
@@ -60,7 +60,7 @@ class Play extends NormalCommandClass {
             return true;
         }
         if (ytpl.validateID(link)) {
-            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.getBoolean("random", false) ?? false)) {
+            if (!await musicHandler.addYoutubePlaylistToQueue(interaction.guildId, link, interaction.options.get("random", false)?.value as boolean ?? false)) {
                 interaction.editReply({ content: "Failed to add YouTube playlist" });
                 return false;
             }
@@ -76,7 +76,7 @@ class Play extends NormalCommandClass {
         return false;
     }
 
-    private createAudioPlayer(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    private createAudioPlayer(interaction: DiscordJS.CommandInteraction): void {
         if (!interaction.guildId) return;
         let connection = joinVoiceChannel({
             //@ts-ignore
@@ -87,9 +87,9 @@ class Play extends NormalCommandClass {
         });
         let player = musicHandler.getPlayer(interaction.guildId);
         if (musicHandler.getQueueLength(interaction.guildId) == 0) {
-            interaction.editReply({ content: `Start playing ${interaction.options.getString("link", true)}` });
+            interaction.editReply({ content: `Start playing ${interaction.options.get("link", true).value}` });
         } else {
-            interaction.editReply({ content: `Added ${interaction.options.getString("link")} to queue` });
+            interaction.editReply({ content: `Added ${interaction.options.get("link", true).value} to queue` });
         }
         connection.subscribe(player);
         musicHandler.PlayEnd(interaction.guildId).on(() => {

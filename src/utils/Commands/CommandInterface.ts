@@ -1,5 +1,4 @@
-import DiscordJS from 'discord.js';
-import { ApplicationCommandOptionTypes } from 'discord.js/typings/enums';
+import DiscordJS, {ApplicationCommandOptionType} from 'discord.js';
 
 export interface CommandInterface {
     name: string;
@@ -9,12 +8,12 @@ export interface CommandInterface {
         name: string;
         description: string;
         required: boolean;
-        type: ApplicationCommandOptionTypes;
+        type: ApplicationCommandOptionType;
     }[] | undefined;
     isAdmin: boolean;
     isDev: boolean;
     reloadable: boolean;
 
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void;
+    reply(interaction: DiscordJS.CommandInteraction): void;
 }
 

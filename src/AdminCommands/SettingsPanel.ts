@@ -1,4 +1,4 @@
-import DiscordJS, { MessageActionRow, MessageButton } from 'discord.js';
+import DiscordJS, { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { GuildSettings, GuildSettingsTypes } from '../utils/Settings/GuildSettings';
 import { settingsHandler } from '../index';
 import { AdminCommandClass } from '../utils/Commands/AdminCommand/AdminCommand';
@@ -8,7 +8,7 @@ import { GuildSetting } from 'src/utils/Settings/GuildSetting';
 class SettingsPanel extends AdminCommandClass {
     name = "settings";
     description = "Opens the settings panel";
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         if (interaction.guild === null) {
             interaction.reply("This command can only be used in a guild.");
             return;
@@ -35,28 +35,28 @@ export function getInstance() { return new SettingsPanel() };
 
 const time_out = 60_000;
 
-function createButtons(settings: GuildSettings): MessageActionRow {
-    let buttons = new MessageActionRow();
+function createButtons(settings: GuildSettings): ActionRowBuilder<ButtonBuilder> {
+    let builder = new ActionRowBuilder<ButtonBuilder>();
 
     for (let type of Object.values(GuildSettingsTypes)) {
         //@ts-ignore 2345
         let setting = settings.get(type);
         if (setting == undefined) continue;
-        buttons.addComponents(new MessageButton().setCustomId("settingsPanel_" + setting.name).setLabel(setting.friendlyName).setStyle("PRIMARY"));
+        builder.addComponents(new ButtonBuilder().setCustomId("settingsPanel_" + setting.name).setLabel(setting.friendlyName).setStyle(ButtonStyle.Primary));
     }
 
-    return buttons;
+    return builder;
 }
 
-function createCollector(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>, settings: GuildSettings): void {
-    const filter = (i: DiscordJS.MessageComponentInteraction<DiscordJS.CacheType>) => i.customId.startsWith("settingsPanel_") && isAdmin(i);
+function createCollector(interaction: DiscordJS.CommandInteraction, settings: GuildSettings): void {
+    const filter = (i: DiscordJS.MessageComponentInteraction) => i.customId.startsWith("settingsPanel_") && isAdmin(i);
 
     const collector = interaction.channel?.createMessageComponentCollector({ filter, time: time_out });
 
     if (collector === undefined) {
         throw new Error("collector is undefined");
     }
-    async function handleSettingChange(interaction: DiscordJS.MessageComponentInteraction<DiscordJS.CacheType>): Promise<boolean> {
+    async function handleSettingChange(interaction: DiscordJS.MessageComponentInteraction): Promise<boolean> {
         let name = interaction.customId.slice(14);
         for (let type of Object.values(GuildSettingsTypes)) {
             //@ts-ignore 2345
@@ -102,7 +102,7 @@ function getMessage(settings: GuildSettings): string {
     return message;
 }
 
-async function getValue(interaction: DiscordJS.MessageComponentInteraction<DiscordJS.CacheType>, setting: GuildSetting) {
+async function getValue(interaction: DiscordJS.MessageComponentInteraction, setting: GuildSetting) {
     switch (setting.type) {
         case Boolean:
             return Promise.resolve(!(setting.value as boolean));

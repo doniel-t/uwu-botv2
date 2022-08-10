@@ -1,5 +1,5 @@
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
-import DiscordJS from "discord.js";
+import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
 
 class Ask extends NormalCommandClass {
     name: string = "ask";
@@ -10,13 +10,13 @@ class Ask extends NormalCommandClass {
             name: "question",
             description: "Question to ask",
             required: true,
-            type: DiscordJS.Constants.ApplicationCommandOptionTypes.STRING,
+            type: ApplicationCommandOptionType.String,
         },
     ];
 
-    reply(interaction: DiscordJS.CommandInteraction<DiscordJS.CacheType>): void {
+    reply(interaction: DiscordJS.CommandInteraction): void {
         interaction.reply({
-            content: interaction.options.getString("question") + "\n**" + this.getContent() + "**",
+            content: interaction.options.get("question", true).value + "\n**" + this.getContent() + "**",
         });
     }
 
@@ -131,4 +131,4 @@ class Ask extends NormalCommandClass {
     }
 }
 
-export function getInstance() {return new Ask()};
+export function getInstance() { return new Ask() };
