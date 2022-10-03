@@ -12,3 +12,7 @@ export function getScore(movieSplit: string): number {
   const scoreString = movieSplit.substring(scoreIndex, scoreIndex + 2);
   return Number(scoreString);
 }
+
+export function sanitizeHTML(name: string): string {
+  return name.replace("&#39;", "'").replace("&amp;", '');
+}
