@@ -42,7 +42,7 @@ export function getMoviesByRating(
   return movies;
 }
 
-type Movie = {
+export type Movie = {
   name: string;
   score: number;
 };

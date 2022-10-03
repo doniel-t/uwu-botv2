@@ -1,4 +1,6 @@
 import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
+import { sanitizeHTML } from "../utils/Movie/parseHTML";
+import { getRandomMovie } from "../utils/Movie/randMovie";
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { fetchMoviesByGenre } from "../utils/Movie/fetchMovieData";
 
@@ -27,8 +29,13 @@ class MovieSuggestion extends NormalCommandClass {
   ];
 
   async reply(interaction: DiscordJS.CommandInteraction): Promise<void> {
+    await interaction.reply({
+      content: "Hold on my hosts' internet is dogshit",
+    });
     const content = await this.createString(interaction);
-    interaction.reply({ content: content });
+    await interaction.editReply({ content: content }).catch((err: Error) => {
+      console.log(err);
+    });
   }
 
   async createString(
@@ -43,10 +50,12 @@ class MovieSuggestion extends NormalCommandClass {
     );
 
     if (limit > content.length) limit = content.length;
-    let replyString: string = limit + "random suggestions:";
-    for (let i = 0; i < limit; i++)
-      replyString =
-        replyString + "\n" + content[i].name + ", " + content[i].score;
+    let replyString: string = limit + " random suggestions:";
+    for (let i = 0; i < limit; i++) {
+      const randMovie = getRandomMovie(content);
+      replyString +=
+        "\n" + sanitizeHTML(randMovie.name) + ", " + randMovie.score;
+    }
     return replyString;
   }
 }
