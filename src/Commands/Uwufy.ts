@@ -22,9 +22,9 @@ class Uwufy extends NormalCommandClass {
 
 function uwufying(interaction: DiscordJS.CommandInteraction): string {
   let input: string = String(interaction.options.get("input_msg")?.value);
-  input = input.replace(/L|R|V/g, "W").replace(/l|r|v/g, "w");
-  return input;
+  return input.replace(/L|R|V/g, "W").replace(/l|r|v/g, "w");
 }
+
 export function getInstance() {
   return new Uwufy();
 }
