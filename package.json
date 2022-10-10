@@ -1,6 +1,6 @@
 {
   "name": "uwubotv2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "",
   "main": "./src/start.ts",
   "scripts": {
@@ -18,7 +18,7 @@
     "bufferutil": "^4.0.6",
     "cleverbot-free": "^1.1.10",
     "discord-api-types": "^0.37.1",
-    "discord.js": "^14.1.2",
+    "discord.js": "^14.6.0",
     "dotenv": "^16.0.0",
     "erlpack": "github:discord/erlpack",
     "ffmpeg-static": "^4.4.1",
@@ -29,7 +29,7 @@
     "soundcloud-scraper": "^5.0.2",
     "utf-8-validate": "^5.0.9",
     "ws": "^8.5.0",
-    "ytdl-core": "^4.11.0",
+    "ytdl-core": "^4.11.2",
     "ytpl": "^2.3.0",
     "zlib-sync": "^0.1.7"
   },

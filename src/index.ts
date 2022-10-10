@@ -24,7 +24,8 @@ export const client = new DiscordJS.Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.GuildVoiceStates
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.MessageContent
     ]
 });
 
@@ -91,7 +92,7 @@ client.on('messageCreate', async (message: Message) => {
 
     let prefix = settingsHandler.get(message.guild.id, GuildSettingsTypes.PREFIX)?.value as string;
     if (message.content.startsWith(prefix)) {
-        let command = commandManager.getCommandByName(message.content.split(" ")[0].slice(prefix.length));
+        let command = commandManager.getCommandByName(message.content.slice(prefix.length).split(" ")[0]);
         if (command) {
             try {
                 await command.reply(messageToInteraction(message, command.options?.length));
