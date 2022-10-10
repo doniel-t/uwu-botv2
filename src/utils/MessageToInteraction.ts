@@ -32,37 +32,37 @@ export function messageToInteraction(message: Message, numberOfOptions: number |
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
             getBoolean: (name: string, required = false) => {
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
             getInteger: (name: string, required = false) => {
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
             getNumber: (name: string, required = false) => {
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
             getString: (name: string, required = false) => {
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
             getSubcommand: (name: string, required = false) => {
                 let result = getOption(name, message.content);
                 //@ts-ignore 2322
                 message.content = result[1];
-                return result[0];
+                return { value: result[0] };
             },
         },
         deferReply: () => { },
