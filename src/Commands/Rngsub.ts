@@ -36,7 +36,6 @@ async function getSubreddit(
   interaction: DiscordJS.CommandInteraction
 ): Promise<string> {
   let post = await getPost(parseOption(interaction));
-  console.log(post.permalink);
   return !post.permalink
     ? "Reddit returned undefined (Subreddit disabled random)"
     : "http://reddit.com" + post.permalink;
