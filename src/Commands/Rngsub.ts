@@ -19,7 +19,7 @@ class RngSub extends NormalCommandClass {
 
   async reply(interaction: DiscordJS.CommandInteraction) {
     await interaction.reply({
-      content: "Hold on my REDDIT's internet is dogshit",
+      content: "Hold on REDDIT's is dogshit",
     });
     const content = await getSubreddit(interaction);
     await interaction.editReply({ content: content }).catch((err: Error) => {
