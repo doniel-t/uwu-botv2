@@ -1,6 +1,8 @@
 import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
-import { WebSocket, MessageEvent } from "ws";
+const snoowrap = require("snoowrap");
+
+let reddit_api: any = undefined;
 
 class RngSub extends NormalCommandClass {
   name: string = "rngsub";
@@ -16,9 +18,12 @@ class RngSub extends NormalCommandClass {
   ];
 
   async reply(interaction: DiscordJS.CommandInteraction) {
-    let content = getSubreddit(interaction);
-    interaction.reply({
-      content: content,
+    await interaction.reply({
+      content: "Hold on my REDDIT's internet is dogshit",
+    });
+    const content = await getSubreddit(interaction);
+    await interaction.editReply({ content: content }).catch((err: Error) => {
+      console.log(err);
     });
   }
 }
@@ -27,29 +32,39 @@ export function getInstance() {
   return new RngSub();
 }
 
-function getSubreddit(interaction: DiscordJS.CommandInteraction): string {
-  let ws = new WebSocket("//httpstest", { handshakeTimeout: 5000 }); // connect to server
+async function getSubreddit(
+  interaction: DiscordJS.CommandInteraction
+): Promise<string> {
+  let post = await getPost(parseOption(interaction));
+  console.log(post.permalink);
+  return !post.permalink
+    ? "Reddit returned undefined (Subreddit disabled random)"
+    : "http://reddit.com" + post.permalink;
+}
 
-  ws.onerror = function error() {
-    return "connection to the websocket failed";
-  };
+function createAPI() {
+  reddit_api = new snoowrap({
+    userAgent: process.env.REDDIT_USERAGENT,
+    clientId: process.env.REDDIT_CLIENTID,
+    clientSecret: process.env.REDDIT_CLIENTSECRET,
+    username: process.env.REDDIT_USERNAME,
+    password: process.env.REDDIT_PW,
+  });
+}
 
-  ws.onopen = () => {
-    ws.send(
-      "RedditAPI " +
-        (String(interaction.options.get("optional_subreddit")?.value) ||
-          "Random")
-    );
-  };
+function parseOption(interaction: DiscordJS.CommandInteraction): string {
+  if (!interaction.options.get("optional_subreddit")) return "Random";
+  const parse = String(interaction.options.get("optional_subreddit")?.value);
+  return parse;
+}
 
-  ws.onmessage = function incoming(event: MessageEvent) {
-    let data = event.data.toString();
-    if (data.startsWith("ERROR")) return "an error accured";
-    let submission = JSON.parse(data);
-    return !submission.permalink
-      ? "Reddit returned undefined (Subreddit disabled random)"
-      : "http://reddit.com" + submission.permalink;
-    ws.close();
-  };
-  return "ERROR";
+async function getPost(reddit: string): Promise<any> {
+  createAPI();
+  try {
+    let subreddit = await reddit_api.getSubreddit(reddit);
+    let randomSub = await subreddit.getRandomSubmission();
+    return randomSub;
+  } catch (err) {
+    return "Command failed";
+  }
 }
