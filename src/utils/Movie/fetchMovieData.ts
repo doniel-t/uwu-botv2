@@ -1,6 +1,6 @@
 import { getMovieName, getScore } from "./parseHTML";
 
-const BASE_URL = "https://www.rottentomatoes.com/browseroot/";
+const BASE_URL = "https://www.rottentomatoes.com/browse/";
 const movieTypes = {
   theatre: "movies_in_theaters",
   home: "movies_at_home",
