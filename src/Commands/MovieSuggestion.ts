@@ -46,7 +46,7 @@ class MovieSuggestion extends NormalCommandClass {
       String(interaction.options.get("genre")?.value),
       Number(interaction.options.get("min_rating")?.value),
       5,
-      Boolean(interaction.options.get("theadre_movie_suggestions")?.value)
+      Boolean(interaction.options.get("theatre_movie_suggestions")?.value)
     );
 
     if (limit > content.length) limit = content.length;
