@@ -53,10 +53,11 @@ class MovieSuggestion extends NormalCommandClass {
     let replyString: string = limit + " random suggestions:";
     for (let i = 0; i < limit; i++) {
       const randMovie = getRandomMovie(content);
+      if(!randMovie) continue;
       replyString +=
         "\n" + sanitizeHTML(randMovie.name) + ", " + randMovie.score;
     }
-    return replyString;
+    return replyString ? replyString : 'Error: No movie was found';
   }
 }
 
