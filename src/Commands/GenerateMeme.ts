@@ -1,6 +1,6 @@
 import { CommandInteraction, ApplicationCommandOptionType } from 'discord.js';
 import { NormalCommandClass } from '../utils/Commands/NormalCommand/NormalCommand';
-import { createMeme } from 'src/utils/MemeGen/MemeGen2';
+import { createMeme } from '../utils/MemeGen/MemeGen2';
 
 class GenerateMeme extends NormalCommandClass {
     name = 'generate_meme';
