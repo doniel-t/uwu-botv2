@@ -30,6 +30,10 @@ class GenerateMeme extends NormalCommandClass {
         const imageURL = interaction.options.get("image_url", true).value as string;
         const topText = interaction.options.get("top_text", true).value as string;
         const bottomText = interaction.options.get("bottom_text", true).value as string;
+        if(topText.length > 100 || bottomText.length > 100) {
+            interaction.reply("Text too long - max 100 characters! ⚠️");
+            return
+        }
 
         const image = await createMeme(imageURL, topText, bottomText);
         interaction.reply({ files: [image] });
