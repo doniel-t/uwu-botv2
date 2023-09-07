@@ -1,0 +1,22 @@
+name: Discord Bot Deployment
+
+on:
+  push:
+    branches:
+      - main # Change this to the branch you want to trigger deployments from
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Deploy to Discord Bot
+        run: |
+          # Securely execute the deployment script
+            echo BOT_TOKEN=$BOT_TOKEN >> .env
+        env:
+          BOT_TOKEN: HEHEXD
+        shell: bash
