@@ -18,8 +18,6 @@ jobs:
           # Securely execute the deployment script
             echo BOT_TOKEN=${{ secrets.BOT_TOKEN }}
             echo GUILD_ID=${{ secrets.GUILD_ID }}
-            echo RECIPE_APP_ID=$${{ secrets.RECIPE_APP_ID }}
+            echo RECIPE_APP_ID=${{ secrets.RECIPE_APP_ID }}
             echo RECIPE_APP_TOKEN=${{ secrets.RECIPE_APP_TOKEN }}
-        env:
-          BOT_TOKEN: HEHEXD
         shell: bash
