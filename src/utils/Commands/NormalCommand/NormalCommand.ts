@@ -5,7 +5,7 @@ export abstract class NormalCommandClass implements CommandInterface {
     name: string = "";
     shortcut: string | undefined;
     description: string = "";
-    options: {
+    options?: {
         name: string;
         description: string;
         required: boolean;
