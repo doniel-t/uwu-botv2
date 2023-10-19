@@ -95,3 +95,29 @@ export function calcWinAmountAndUpdateUserJSON(outcome: boolean, bet: Bet){
 
     updateRegisteredUsersJSON(updatedUsers);
 }
+
+function defaultIfNaN(value: number, defaultValue: number) {
+    return isNaN(value) ? defaultValue : value;
+}
+
+export function getBetOdds(bet: Bet) {
+    const totalPool = getTotalBetAmount(bet);
+    const betters = bet.users;
+    const bettersChoseTrue = betters.filter((better: BetEntry) => better.betOutcome);
+    const bettersChoseTrueValue = bettersChoseTrue.reduce((acc: number, better: BetEntry) => acc + better.amount, 0);
+    const percentageTrue = defaultIfNaN(bettersChoseTrueValue / totalPool, 0);
+
+    return {
+        total: totalPool ?? 0,
+        trueBetters: {
+            betCount: bettersChoseTrue.length ?? 0,
+            percentage: defaultIfNaN(percentageTrue * 100, 0).toFixed(2) ?? 0,
+            value: bettersChoseTrueValue ?? 0
+        },
+        falseBetters: {
+            betCount: (betters.length - bettersChoseTrue.length) ?? 0,
+            percentage: defaultIfNaN((1 - percentageTrue)*100, 0).toFixed(2) ?? 0,
+            value: (totalPool - bettersChoseTrueValue) ?? 0
+        }
+    }
+}
