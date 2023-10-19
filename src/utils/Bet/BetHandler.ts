@@ -95,30 +95,3 @@ export function calcWinAmountAndUpdateUserJSON(outcome: boolean, bet: Bet){
 
     updateRegisteredUsersJSON(updatedUsers);
 }
-
-const totalPool = 1000;
-const winners = [
-    {
-        userID: '123',
-        amount: 500,
-        betOutcome: true
-    },
-    {
-        userID: '456',
-        amount: 200,
-        betOutcome: true
-    },
-]
-
-const winnerPool = winners.reduce((acc: number, entry: BetEntry) => acc + entry.amount, 0);
-
-winners.map((winner: BetEntry) => {
-    const percentageWinnerAmount = winner.amount / winnerPool;
-        const updatedAmount = totalPool * percentageWinnerAmount
-        console.log(updatedAmount);
-        return {
-            userID: winner.userID,
-            amount: updatedAmount,
-            betOutcome: winner.betOutcome
-        }
-    });
