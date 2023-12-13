@@ -60,7 +60,7 @@ class Ask extends NormalCommandClass {
     "No, you are on the naughty list!",
     "Yes, you are on the nice list!",
     "Ho ho ho! Yes!",
-    "No, get back to work you lousy elf!"
+    "No, get back to work you lousy elf!",
   ];
 
   aprilfoolsAnswers: string[] = [
@@ -161,14 +161,12 @@ class Ask extends NormalCommandClass {
   }
 
   getContentType(): AnswerType {
-    let specialOccasion = this.isXmasMonth();
-    if (specialOccasion) {
-        //50% chance of xmas answer
-        return Math.random() < 0.5 ? "xmas" : "default";
-    };
+    if (this.isXmasMonth()) {
+      //50% chance of xmas answer
+      return Math.random() < 0.5 ? "xmas" : "default";
+    }
 
-    specialOccasion = this.isAprilFools();
-    if (specialOccasion) return "aprilFools";
+    if (this.isAprilFools()) return "aprilFools";
 
     return "default";
   }
