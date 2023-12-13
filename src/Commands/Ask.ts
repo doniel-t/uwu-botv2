@@ -45,7 +45,7 @@ class Ask extends NormalCommandClass {
     "You may rely on it",
   ];
 
-  xmas_answers = [
+  xmasAnswers = [
     "As merry as a wreath!",
     "It's as certain as Santa!",
     "Ho ho ho! Affirmative!",
@@ -174,7 +174,7 @@ class Ask extends NormalCommandClass {
   }
 
   RESPONSES: Record<AnswerType, string[]> = {
-    xmas: this.xmas_answers,
+    xmas: this.xmasAnswers,
     aprilFools: this.aprilfoolsAnswers,
     default: this.answers,
   };
