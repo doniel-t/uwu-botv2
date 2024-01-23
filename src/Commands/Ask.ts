@@ -159,7 +159,6 @@ class Ask extends NormalCommandClass {
   getResponse(answerArray: string[]): string {
     return answerArray[Math.floor(Math.random() * answerArray.length)];
   }
-
   getContentType(): AnswerType {
     if (this.isXmasMonth()) {
       //50% chance of xmas answer
@@ -186,3 +185,26 @@ class Ask extends NormalCommandClass {
 export function getInstance() {
   return new Ask();
 }
+
+type ContainsMobileGameOrApp<T extends string[]> = T extends [infer Head, ...infer Rest]
+  ? Head extends string
+    ? Head extends `${string}mobile game${string}` | `${string}app${string}`
+      ? true
+      : ContainsMobileGameOrApp<Rest extends string[] ? Rest : never>
+    : false
+  : false;
+
+
+
+
+
+
+
+
+  type isBot = ContainsMobileGameOrApp<["I love playing mobile games!", "This app is amazing.", "I enjoy console games more."]>; 
+  // type isBot = true
+
+  type isBot2 = ContainsMobileGameOrApp<["No games here", "Another string without an a p p."]>; 
+  // type isBot2 = false
+
+  
