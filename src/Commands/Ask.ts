@@ -14,14 +14,21 @@ class Ask extends NormalCommandClass {
       required: true,
       type: ApplicationCommandOptionType.String,
     },
+    {
+      name: "hard_mode",
+      description: "Allows UwU Bot to answer with a mean responses",
+      required: false,
+      type: ApplicationCommandOptionType.Boolean,
+    }
   ];
 
   reply(interaction: DiscordJS.CommandInteraction): void {
+
     interaction.reply({
       content:
         interaction.options.get("question", true).value +
         "\n**" +
-        this.getContent() +
+        this.getContent(interaction) +
         "**",
     });
   }
@@ -64,15 +71,14 @@ class Ask extends NormalCommandClass {
   ];
 
   aprilfoolsAnswers: string[] = [
-    "Ey du Hurensohn",
+    "Ey du Hurensohn denk nicht mal dran",
     "XD IMAGINE THINKING THAT",
-    "you are the bot now",
+    "you are the bot now - and no",
     "KEKW",
     "LMAO YOU STOOPID",
     "bruh fr?",
     "you are lowkey mid",
     "you are lowkey mildly retarded",
-    "deez nuts",
     "trump looking ass XD",
     "iq diff XD",
     "gura deadass dog tier",
@@ -105,8 +111,9 @@ class Ask extends NormalCommandClass {
     "first moment of enlightment",
     "sun reflects of yo big ass forehead",
     "nice guess lol",
+    "nice try lol",
     "toddler thought",
-    "get some bitches",
+    "get some bitches instead",
     "copium",
     "bruh moment",
     "Didnt't ask + Ratio + cringe + you fell off + cope",
@@ -159,6 +166,7 @@ class Ask extends NormalCommandClass {
   getResponse(answerArray: string[]): string {
     return answerArray[Math.floor(Math.random() * answerArray.length)];
   }
+
   getContentType(): AnswerType {
     if (this.isXmasMonth()) {
       //50% chance of xmas answer
@@ -176,8 +184,14 @@ class Ask extends NormalCommandClass {
     default: this.answers,
   };
 
-  getContent(): string {
+  getContent(interaction: DiscordJS.CommandInteraction): string {
+    const hardMode = interaction.options.get("hard_mode")?.value as boolean;
     const contentType = this.getContentType();
+
+    if (hardMode && !this.isAprilFools()) {
+      return this.getResponse([...this.RESPONSES[contentType], ...this.RESPONSES["aprilFools"]]);
+    }
+
     return this.getResponse(this.RESPONSES[contentType]);
   }
 }
@@ -185,26 +199,3 @@ class Ask extends NormalCommandClass {
 export function getInstance() {
   return new Ask();
 }
-
-type ContainsMobileGameOrApp<T extends string[]> = T extends [infer Head, ...infer Rest]
-  ? Head extends string
-    ? Head extends `${string}mobile game${string}` | `${string}app${string}`
-      ? true
-      : ContainsMobileGameOrApp<Rest extends string[] ? Rest : never>
-    : false
-  : false;
-
-
-
-
-
-
-
-
-  type isBot = ContainsMobileGameOrApp<["I love playing mobile games!", "This app is amazing.", "I enjoy console games more."]>; 
-  // type isBot = true
-
-  type isBot2 = ContainsMobileGameOrApp<["No games here", "Another string without an a p p."]>; 
-  // type isBot2 = false
-
-  

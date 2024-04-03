@@ -28,6 +28,7 @@
     "fs": "^0.0.1-security",
     "jimp": "^0.22.10",
     "libsodium-wrappers": "^0.7.10",
+    "ollama": "^0.4.4",
     "ping": "^0.4.1",
     "require-dir": "^1.2.0",
     "snoowrap": "^1.23.0",
