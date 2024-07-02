@@ -7,7 +7,7 @@ type SarcasmDetectionResponse = {
   confidence: string;
 };
 
-class IsSarcasm extends DevCommandClass {
+class IsSarcasm extends NormalCommandClass {
   name = "is_sarcasm";
   description = "Check if the message is sarcastic (only works for English)";
   options = [
@@ -30,10 +30,16 @@ class IsSarcasm extends DevCommandClass {
 
   //returns the string response from the command
   async getContent(interaction: CommandInteraction): Promise<string | undefined> {
+    const SARCASM_URL = process.env.SARCASM_URL;
+    if (!SARCASM_URL) {
+      console.log("Sarcasm Detection URL is not set")
+      return "Sarcasm Detection URL is not Set - go annoy host";
+    }
+
     try {
       const message = interaction.options.get("message", true).value;
       const sarcasmRequest = await fetch(
-        `http://127.0.0.1:5000/predictSarcasm?textToPredict=${message}`
+        `${SARCASM_URL}:5000/predictSarcasm?textToPredict=${message}`
       );
       const sarcasmResponse: SarcasmDetectionResponse =
         await sarcasmRequest.json();
