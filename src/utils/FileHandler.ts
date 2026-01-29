@@ -22,6 +22,10 @@ export class FileHandler {
         try {
             let settingsDict = new Map<string, GuildSettings>();
 
+            if (!fs.existsSync("Files")) {
+                fs.mkdirSync("Files");
+            }
+
             client.guilds.cache.forEach((guild: Guild) => {
                 if (!fs.existsSync(`Files/${guild.id}`))
                     fs.mkdirSync(`Files/${guild.id}/`);

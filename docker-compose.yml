@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: ./secrets/.env
+    environment:
+      - VECTOR_DB_PATH=/app/data/vector.db
+    volumes:
+      - bot-data:/app/data
+      - bot-files:/app/Files
+
+volumes:
+  bot-data:
+  bot-files:

@@ -1,0 +1,6 @@
+node_modules
+.env
+secrets/
+data/
+*.db
+.git

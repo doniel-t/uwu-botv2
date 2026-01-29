@@ -18,7 +18,7 @@ export function messageToInteraction(message: Message, numberOfOptions: number |
         }
 
         optionsCache[name] = array.shift();
-        return [optionsCache[name] ?? null, (command + " " + array.join(" ")) ?? ""];
+        return [optionsCache[name] ?? null, (command + " " + array.join(" ")) || ""];
     }
     let firstReply: DiscordJS.Message<boolean> | undefined = undefined;
     let interaction = {

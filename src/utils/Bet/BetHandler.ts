@@ -115,9 +115,9 @@ export function getBetOdds(bet: Bet) {
             value: bettersChoseTrueValue ?? 0
         },
         falseBetters: {
-            betCount: (betters.length - bettersChoseTrue.length) ?? 0,
+            betCount: (betters.length - bettersChoseTrue.length) || 0,
             percentage: defaultIfNaN((1 - percentageTrue)*100, 0).toFixed(2) ?? 0,
-            value: (totalPool - bettersChoseTrueValue) ?? 0
+            value: (totalPool - bettersChoseTrueValue) || 0
         }
     }
 }
