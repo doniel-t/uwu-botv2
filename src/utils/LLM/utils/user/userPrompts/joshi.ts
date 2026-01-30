@@ -15,7 +15,6 @@ const prompt = `
 - Personality:
 - Appearance:
 
-# Information how to interact with the user
 `
 
 
