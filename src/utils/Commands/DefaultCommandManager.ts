@@ -28,15 +28,21 @@ export class DefaultCommandManager implements CommandManagerInterface {
             this.commands.push(command);
         }
 
+        const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
         this.commands.forEach(command => {
             if (command.name == undefined) return;
             if (command.description == undefined) return;
-            client.application?.commands.create({
+            const commandData = {
                 name: command.name,
                 description: command.description,
                 //@ts-ignore 2322
                 options: command.options
-            });
+            };
+            if (guild) {
+                guild.commands.create(commandData);
+            } else {
+                client.application?.commands.create(commandData);
+            }
         });
     }
 

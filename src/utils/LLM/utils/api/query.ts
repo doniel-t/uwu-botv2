@@ -38,7 +38,7 @@ export const query = async (prompt: string, user: User) => {
 
   const start = Date.now();
   const result = await generateText({
-    model: openrouter(CHAT_MODEL),
+    model: openrouter.chat(CHAT_MODEL),
     system: systemPrompt,
     prompt: usedPrompt,
   });

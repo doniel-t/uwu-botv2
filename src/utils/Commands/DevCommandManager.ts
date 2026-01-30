@@ -48,13 +48,19 @@ export class DevCommandManager implements CommandManagerInterface {
             this.commands.push(command);
         }
 
+        const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
         for (let command of this.commands) {
-            client.application?.commands.create({
+            const commandData = {
                 name: command.name,
                 description: command.description,
                 //@ts-ignore 2322
                 options: command.options
-            });
+            };
+            if (guild) {
+                guild.commands.create(commandData);
+            } else {
+                client.application?.commands.create(commandData);
+            }
         }
     }
 

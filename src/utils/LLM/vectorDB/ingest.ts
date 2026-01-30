@@ -52,7 +52,7 @@ export async function storeMessage(
     );
 
     if (result.changes > 0) {
-      const rowId = result.lastInsertRowid;
+      const rowId = Number(result.lastInsertRowid);
       db.prepare(
         "INSERT INTO message_embeddings (message_id, embedding) VALUES (?, ?)"
       ).run(rowId, new Float32Array(embedding));

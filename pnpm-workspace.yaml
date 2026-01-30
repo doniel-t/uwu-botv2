@@ -1,0 +1,1 @@
+onlyBuiltDependencies: '@discordjs/opus,better-sqlite3,bufferutil,canvas,erlpack,ffmpeg-static,utf-8-validate,zlib-sync'

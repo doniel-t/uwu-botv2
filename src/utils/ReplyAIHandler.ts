@@ -27,8 +27,8 @@ export class ReplyAIHandler {
       this.botId = client.user.id;
     }
 
-    // Must be a reply to another message
-    if (!message.reference?.messageId) {
+    // Don't respond to bots
+    if (message.author.bot) {
       return false;
     }
 
@@ -37,12 +37,11 @@ export class ReplyAIHandler {
       return false;
     }
 
-    // Don't respond to bots
-    if (message.author.bot) {
-      return false;
-    }
-
     return true;
+  }
+
+  private isReply(message: Message): boolean {
+    return !!message.reference?.messageId;
   }
 
   /**
@@ -54,17 +53,6 @@ export class ReplyAIHandler {
     }
 
     try {
-      // Fetch the original message being replied to
-      const originalMessage = await message.channel.messages.fetch(
-        message.reference!.messageId!
-      );
-
-      if (!originalMessage) {
-        await message.reply("I couldn't find the message you're replying to.");
-        return;
-      }
-
-      // Extract the instruction (remove the bot mention from the message)
       const instruction = this.extractInstruction(message.content);
 
       if (!instruction || instruction.trim().length === 0) {
@@ -75,23 +63,53 @@ export class ReplyAIHandler {
       // Show typing indicator
       await message.channel.sendTyping();
 
-      // Build the context
-      const context: ReplyAIContext = {
-        instruction: instruction,
-        targetUserId: originalMessage.author.id,
-        targetUsername: originalMessage.author.displayName || originalMessage.author.username,
-        targetMessageContent: originalMessage.content,
-        requestingUserId: message.author.id,
-      };
+      let context: ReplyAIContext;
 
-      // Get the AI response
-      const response = await getReplyAIResponse(context);
+      if (this.isReply(message)) {
+        // Reply to another message
+        const originalMessage = await message.channel.messages.fetch(
+          message.reference!.messageId!
+        );
 
-      // Reply to the original message (not the command message)
-      await originalMessage.reply({
-        content: response,
-        allowedMentions: { repliedUser: true },
-      });
+        if (!originalMessage) {
+          await message.reply("I couldn't find the message you're replying to.");
+          return;
+        }
+
+        const isReplyToBot = originalMessage.author.id === "959595157462868042";
+        const targetMessage = isReplyToBot ? message : originalMessage;
+
+        context = {
+          instruction: instruction,
+          targetUserId: targetMessage.author.id,
+          targetUsername: targetMessage.author.displayName || targetMessage.author.username,
+          targetMessageContent: isReplyToBot ? instruction : originalMessage.content,
+          requestingUserId: message.author.id,
+        };
+
+        const response = await getReplyAIResponse(context);
+
+        await targetMessage.reply({
+          content: response,
+          allowedMentions: { repliedUser: true },
+        });
+      } else {
+        // Direct ping (no reply) — user is talking to the bot directly
+        context = {
+          instruction: instruction,
+          targetUserId: message.author.id,
+          targetUsername: message.author.displayName || message.author.username,
+          targetMessageContent: instruction,
+          requestingUserId: message.author.id,
+        };
+
+        const response = await getReplyAIResponse(context);
+
+        await message.reply({
+          content: response,
+          allowedMentions: { repliedUser: true },
+        });
+      }
 
     } catch (error) {
       console.error("ReplyAIHandler Error:", error);

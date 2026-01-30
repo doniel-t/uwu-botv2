@@ -1,6 +1,6 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenRouter as openRouterClient } from '@openrouter/ai-sdk-provider';
 
-export const CHAT_MODEL = "deepseek/deepseek-chat-v3-0324";
+export const CHAT_MODEL = "google/gemini-3-flash-preview";
 export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -9,9 +9,8 @@ export function getOpenRouterKey(): string {
 }
 
 export function createOpenRouter() {
-  return createOpenAI({
+  return openRouterClient({
     apiKey: getOpenRouterKey(),
-    baseURL: OPENROUTER_BASE_URL,
   });
 }
 

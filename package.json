@@ -13,15 +13,16 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@ai-sdk/deepseek": "^1.0.0",
     "@ai-sdk/openai": "^3.0.23",
+    "@discordjs/builders": "^1.13.1",
     "@discordjs/opus": "^0.8.0",
     "@discordjs/voice": "^0.19.0",
     "@elevenlabs/elevenlabs-js": "^2.26.0",
+    "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
     "@snazzah/davey": "^0.1.8",
     "@types/jimp": "^0.2.28",
     "@types/uuid": "^9.0.6",
-    "ai": "^5.0.56",
+    "ai": "^6.0.62",
     "better-sqlite3": "^12.6.2",
     "bufferutil": "^4.0.6",
     "canvas": "^3.1.2",
@@ -35,7 +36,6 @@
     "jimp": "^0.22.10",
     "libsodium-wrappers": "^0.7.10",
     "ollama": "^0.4.4",
-    "opusscript": "^0.0.8",
     "ping": "^0.4.1",
     "require-dir": "^1.2.0",
     "snoowrap": "^1.23.0",
@@ -48,10 +48,23 @@
     "ytpl": "^2.3.0",
     "zlib-sync": "^0.1.7"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@discordjs/opus",
+      "better-sqlite3",
+      "bufferutil",
+      "canvas",
+      "erlpack",
+      "ffmpeg-static",
+      "utf-8-validate",
+      "zlib-sync"
+    ]
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/ping": "^0.4.1",
     "@types/require-dir": "^1.0.2",
+    "@types/ws": "^8.5.0",
     "ts-node": "^10.7.0",
     "typescript": "^4.6.3"
   }

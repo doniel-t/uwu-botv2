@@ -4,3 +4,4 @@ secrets/
 data/
 *.db
 .git
+package-lock.json

@@ -1,4 +1,4 @@
-import { Message as DiscordMessage } from "discord.js";
+import { Message as DiscordMessage, Collection } from "discord.js";
 import { storeMessage, ContextMessage } from "./ingest";
 
 // Queue messages for 30 seconds to allow context window to fill
@@ -44,7 +44,7 @@ export function startQueueProcessor(): void {
         });
 
         // Reverse so oldest is first
-        const beforeArray = Array.from(beforeMessages.values()).reverse();
+        const beforeArray: any[] = Array.from(beforeMessages.values()).reverse();
         for (const msg of beforeArray) {
           contextMessages.push({
             userId: msg.author.id,
@@ -68,7 +68,7 @@ export function startQueueProcessor(): void {
           limit: 2,
         });
 
-        const afterArray = Array.from(afterMessages.values()).reverse();
+        const afterArray: any[] = Array.from(afterMessages.values()).reverse();
         for (const msg of afterArray) {
           contextMessages.push({
             userId: msg.author.id,

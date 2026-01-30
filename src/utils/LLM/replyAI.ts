@@ -39,7 +39,7 @@ export async function getReplyAIResponse(context: ReplyAIContext): Promise<strin
     if (rateLimitError) {
       return rateLimitError;
     }
-
+  
     const targetUser = getUserById(context.targetUserId);
 
     // Build context about the target
@@ -76,8 +76,11 @@ ${getRandomInfo(targetUser.userInformation).join("\n")}
 ${basePrompt}
 
 # Special Context - Reply Command
-You have been summoned by a user to respond to another user's message.
 The user who summoned you wants you to: "${context.instruction}"
+
+# Reply format
+ALWAYS respond in english
+UNDER ANY CIRCUMSTANCE KEEP THE MESSAGE SMALLER THAN 2000 CHARACTERS
 
 ${targetContext}
 
@@ -86,26 +89,19 @@ ${ragContext}
 # The message you are responding to
 "${context.targetMessageContent}" - sent by ${context.targetUsername}
 
-# Your Task
-Follow the instruction given by the user who summoned you. Be creative and use any information you have about the target.
-If the instruction is to roast/insult, go all out with the information you have.
-If you don't have information about the target, use their message content and username to craft your response.
-
-# Rules
-- Keep your response to 1-3 sentences max
-- Be savage if that's what was requested
-- Reference the actual message content when relevant
-- Use any user information you have to make it personal
 `;
 
     const openrouter = createOpenRouter();
 
     const start = Date.now();
+    console.log(`System prompt: ${systemPrompt}`)
+    console.log(`Execute the instruction: "${context.instruction}" targeting the message: "${context.targetMessageContent}"`)
+
     const result = await generateText({
-      model: openrouter(CHAT_MODEL),
+      model: openrouter.chat(CHAT_MODEL),
       system: systemPrompt,
       prompt: `Execute the instruction: "${context.instruction}" targeting the message: "${context.targetMessageContent}"`,
-    });
+    })
     const durationMs = Date.now() - start;
 
     const inputTokens = result.usage.inputTokens || 0;
@@ -122,11 +118,11 @@ If you don't have information about the target, use their message content and us
       extra: {
         instruction: context.instruction,
         targetUser: targetUser?.name || context.targetUsername,
-        response: result.text.slice(0, 100),
+        response: result.content.slice(0, 100),
       },
     });
 
-    return result.text;
+    return result.text
   } catch (error) {
     console.error("[ReplyAI] Error:", error);
     return "I'm having trouble processing that. Try again later.";

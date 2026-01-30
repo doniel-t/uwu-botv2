@@ -10,6 +10,7 @@ export class SettingsHandler {
     constructor(settings: Map<string, GuildSettings>) {
         this.guildSettingsDict = settings;
         this.saveAllSettings();
+        this.valid = true;
     }
 
     get(guildId: string | null, setting: GuildSettingsTypes): GuildSetting | undefined {

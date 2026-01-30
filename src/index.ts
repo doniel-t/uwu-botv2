@@ -64,9 +64,15 @@ export var musicHandler: MusicHandler;
 export var replyAIHandler: ReplyAIHandler;
 
 client.on('ready', async () => {
-    fileHandler = new FileHandler();
-    settingsHandler = new SettingsHandler(fileHandler.initSettings());
-    if (settingsHandler.valid) {
+    try {
+        fileHandler = new FileHandler();
+        settingsHandler = new SettingsHandler(fileHandler.initSettings());
+    } catch (err) {
+        console.error("Settings init threw:", err);
+        client.destroy();
+        return;
+    }
+    if (!settingsHandler.valid) {
         console.log("Settings Initialization failed!");
         client.destroy();
         return;
