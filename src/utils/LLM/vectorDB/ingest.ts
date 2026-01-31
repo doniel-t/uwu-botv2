@@ -52,10 +52,9 @@ export async function storeMessage(
     );
 
     if (result.changes > 0) {
-      const rowId = Number(result.lastInsertRowid);
       db.prepare(
         "INSERT INTO message_embeddings (message_id, embedding) VALUES (?, ?)"
-      ).run(rowId, new Float32Array(embedding));
+      ).run(result.lastInsertRowid, new Float32Array(embedding));
     }
   } catch (error) {
     console.error(`[VectorDB] Failed to store message ${messageId}:`, error);
