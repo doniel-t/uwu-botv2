@@ -25,12 +25,19 @@ const checkRateLimit = (): string | null => {
   return null;
 };
 
+export type ChannelMessage = {
+  authorName: string;
+  content: string;
+  replyTo?: string; // username of the person they replied to
+};
+
 export type ReplyAIContext = {
   instruction: string;
   targetUserId: string;
   targetUsername: string;
   targetMessageContent: string;
   requestingUserId: string;
+  channelHistory?: ChannelMessage[];
 };
 
 export async function getReplyAIResponse(context: ReplyAIContext): Promise<string> {
@@ -85,6 +92,14 @@ UNDER ANY CIRCUMSTANCE KEEP THE MESSAGE SMALLER THAN 2000 CHARACTERS
 ${targetContext}
 
 ${ragContext}
+
+${context.channelHistory && context.channelHistory.length > 0 ? `# Recent Channel Chat History (last hour)
+The following is the recent conversation in the channel. This is NOT the user's query — it is background context so you understand what has been discussed.
+${context.channelHistory.map(m => {
+  const replyPart = m.replyTo ? ` (replying to ${m.replyTo})` : "";
+  return `[${m.authorName}${replyPart}]: ${m.content}`;
+}).join("\n")}
+` : ""}
 
 # The message you are responding to
 "${context.targetMessageContent}" - sent by ${context.targetUsername}

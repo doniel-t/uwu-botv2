@@ -1,5 +1,5 @@
-import { Message } from "discord.js";
-import { getReplyAIResponse, ReplyAIContext } from "./LLM/replyAI";
+import { Collection, Message, Snowflake } from "discord.js";
+import { getReplyAIResponse, ReplyAIContext, ChannelMessage } from "./LLM/replyAI";
 import { client } from "../index";
 
 /**
@@ -63,6 +63,9 @@ export class ReplyAIHandler {
       // Show typing indicator
       await message.channel.sendTyping();
 
+      // Fetch recent channel history for context
+      const channelHistory = await this.fetchChannelHistory(message);
+
       let context: ReplyAIContext;
 
       if (this.isReply(message)) {
@@ -85,6 +88,7 @@ export class ReplyAIHandler {
           targetUsername: targetMessage.author.displayName || targetMessage.author.username,
           targetMessageContent: isReplyToBot ? instruction : originalMessage.content,
           requestingUserId: message.author.id,
+          channelHistory,
         };
 
         const response = await getReplyAIResponse(context);
@@ -101,6 +105,7 @@ export class ReplyAIHandler {
           targetUsername: message.author.displayName || message.author.username,
           targetMessageContent: instruction,
           requestingUserId: message.author.id,
+          channelHistory,
         };
 
         const response = await getReplyAIResponse(context);
@@ -115,6 +120,60 @@ export class ReplyAIHandler {
       console.error("ReplyAIHandler Error:", error);
       await message.reply("Something went wrong. Try again later.");
     }
+  }
+
+  /**
+   * Fetch messages from the last hour in the channel for context
+   */
+  private async fetchChannelHistory(message: Message): Promise<ChannelMessage[]> {
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const history: ChannelMessage[] = [];
+
+    try {
+      let lastId: string | undefined;
+      let done = false;
+
+      while (!done) {
+        const options: { limit: number; before?: string } = { limit: 100 };
+        if (lastId) options.before = lastId;
+
+        const fetched: Collection<Snowflake, Message> = await message.channel.messages.fetch(options);
+        if (fetched.size === 0) break;
+
+        for (const [, msg] of fetched) {
+          if (msg.createdTimestamp < oneHourAgo) {
+            done = true;
+            break;
+          }
+          // Skip the triggering message itself
+          if (msg.id === message.id) continue;
+
+          const entry: ChannelMessage = {
+            authorName: msg.author.displayName || msg.author.username,
+            content: msg.content,
+          };
+
+          if (msg.reference?.messageId) {
+            try {
+              const replied = await message.channel.messages.fetch(msg.reference.messageId);
+              entry.replyTo = replied.author.displayName || replied.author.username;
+            } catch {
+              // reply target not found, skip
+            }
+          }
+
+          history.push(entry);
+        }
+
+        lastId = fetched.last()?.id;
+        if (fetched.size < 100) break;
+      }
+    } catch (error) {
+      console.error("[ReplyAIHandler] Failed to fetch channel history:", error);
+    }
+
+    // Return in chronological order (oldest first)
+    return history.reverse();
   }
 
   /**
