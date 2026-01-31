@@ -20,9 +20,8 @@ export async function retrieveRelevant(
   try {
     const queryEmbedding = await embedText(query);
 
-    // sqlite-vec MATCH queries must target the vec0 table directly.
-    // We fetch more candidates than needed, then filter by user_id via JOIN.
-    const candidateLimit = limit * 5;
+    // Fetch a large candidate pool to maximize recall after user filtering.
+    const candidateLimit = limit * 10;
 
     const rows = db
       .prepare(
@@ -32,7 +31,8 @@ export async function retrieveRelevant(
         m.user_name,
         m.user_id,
         m.context_window,
-        m.created_at
+        m.created_at,
+        e.distance
       FROM (
         SELECT message_id, distance
         FROM message_embeddings
@@ -56,7 +56,17 @@ export async function retrieveRelevant(
       user_id: string;
       context_window: string;
       created_at: number;
+      distance: number;
     }[];
+
+    if (rows.length > 0) {
+      console.log(`[VectorDB] Found ${rows.length} relevant messages for user ${userId}:`);
+      for (const row of rows) {
+        console.log(`  [dist=${row.distance.toFixed(4)}] ${row.user_name}: ${row.content.slice(0, 80)}`);
+      }
+    } else {
+      console.log(`[VectorDB] No relevant messages found for user ${userId} (query: "${query.slice(0, 60)}")`);
+    }
 
     return rows.map((row) => ({
       content: row.content,
@@ -98,7 +108,18 @@ export async function retrieveRecent(
       created_at: number;
     }[];
 
-    return rows.reverse().map((row) => ({
+    const results = rows.reverse();
+
+    if (results.length > 0) {
+      console.log(`[VectorDB] Found ${results.length} recent messages for user ${userId}:`);
+      for (const row of results) {
+        console.log(`  [${new Date(row.created_at).toISOString()}] ${row.user_name}: ${row.content.slice(0, 80)}`);
+      }
+    } else {
+      console.log(`[VectorDB] No recent messages found for user ${userId} (last ${hoursAgo}h)`);
+    }
+
+    return results.map((row) => ({
       content: row.content,
       userName: row.user_name,
       userId: row.user_id,
