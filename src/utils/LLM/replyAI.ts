@@ -55,9 +55,6 @@ export async function getReplyAIResponse(context: ReplyAIContext): Promise<strin
       targetContext = `
 # Information about the target user (the person being targeted)
 ${getUserPrompt(targetUser)}
-
-## Additional facts about ${targetUser.name}:
-${getRandomInfo(targetUser.userInformation).join("\n")}
 `;
     } else {
       targetContext = `
@@ -82,19 +79,22 @@ ${getRandomInfo(targetUser.userInformation).join("\n")}
     const systemPrompt = `
 ${basePrompt}
 
-# Special Context - Reply Command
-The user who summoned you wants you to: "${context.instruction}"
-
 # Reply format
 ALWAYS respond in english
 UNDER ANY CIRCUMSTANCE KEEP THE MESSAGE SMALLER THAN 2000 CHARACTERS
 
 ${targetContext}
 
+# Relevant messages the user has sent about the topic (RAG context)
 ${ragContext}
 
 ${context.channelHistory && context.channelHistory.length > 0 ? `# Recent Channel Chat History (last hour)
-The following is the recent conversation in the channel. This is NOT the user's query — it is background context so you understand what has been discussed.
+The following is the recent conversation in the channel.
+This is NOT the user's query — it is background context so you understand what has been discussed.
+Unless prompted to dont respond to this. This is ONLY for context and not information for the prompt unless specified.
+In this message history you are called UwU Bot v2. Dont reply to your own messages, they are merely here to provide context for user queries and their following answers.
+
+For example if one user named Donel is talking about hardware and another sergej queries about another topic ignore Donels message.
 ${context.channelHistory.map(m => {
   const replyPart = m.replyTo ? ` (replying to ${m.replyTo})` : "";
   return `[${m.authorName}${replyPart}]: ${m.content}`;
