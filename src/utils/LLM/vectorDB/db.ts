@@ -19,21 +19,34 @@ export function getDB(): Database.Database {
   db = new Database(DB_PATH);
   sqliteVec.load(db);
 
+  // Check if old schema exists (has context_window column) and migrate
+  const tableInfo = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+  if (tableInfo.length > 0 && tableInfo.some((col) => col.name === "context_window")) {
+    console.log("[VectorDB] Old schema detected, dropping tables for migration...");
+    db.exec(`DROP TABLE IF EXISTS message_embeddings`);
+    db.exec(`DROP TABLE IF EXISTS messages`);
+    db.exec(`DELETE FROM meta WHERE key = 'backfill_done'`);
+    embeddingTableReady = false;
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      message_id TEXT UNIQUE NOT NULL,
+      discord_message_id TEXT UNIQUE NOT NULL,
+      content TEXT NOT NULL,
       user_id TEXT NOT NULL,
       user_name TEXT NOT NULL,
+      reply_message_id TEXT,
+      history TEXT NOT NULL,
       channel_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      context_window TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS idx_messages_discord_id ON messages(discord_message_id);
     CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
-    CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages(message_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_channel_time ON messages(channel_id, created_at);
 
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
@@ -76,7 +89,7 @@ export function setBackfillDone(): void {
   getDB().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('backfill_done', 'true')").run();
 }
 
-export function messageExists(messageId: string): boolean {
-  const row = getDB().prepare("SELECT 1 FROM messages WHERE message_id = ?").get(messageId) as any;
+export function messageExists(discordMessageId: string): boolean {
+  const row = getDB().prepare("SELECT 1 FROM messages WHERE discord_message_id = ?").get(discordMessageId) as any;
   return !!row;
 }

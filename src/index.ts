@@ -16,7 +16,7 @@ import { MusicHandler } from './utils/Music/MusicHandler';
 import { messageToInteraction } from './utils/MessageToInteraction';
 import { ReplyAIHandler } from './utils/ReplyAIHandler';
 import { getDB } from './utils/LLM/vectorDB/db';
-import { backfill, isTrackedUser, TARGET_GUILD_ID } from './utils/LLM/vectorDB/ingest';
+import { backfill, TARGET_GUILD_ID } from './utils/LLM/vectorDB/ingest';
 import { queueMessage, startQueueProcessor } from './utils/LLM/vectorDB/queue';
 import { initPricing } from './utils/LLM/utils/api/openrouter';
 
@@ -138,8 +138,8 @@ client.on('messageCreate', async (message: Message) => {
     if (message.guild == null) return;
     if (message.author.bot) return;
 
-    // Queue tracked user messages from the target guild for vector DB ingestion
-    if (message.guild.id === TARGET_GUILD_ID && isTrackedUser(message.author.id)) {
+    // Queue ALL messages from the target guild for vector DB ingestion
+    if (message.guild.id === TARGET_GUILD_ID && message.content.trim().length > 0) {
         queueMessage(message);
     }
 

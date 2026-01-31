@@ -1,35 +1,22 @@
-import { Client, TextChannel, Collection, Message as DiscordMessage } from "discord.js";
+import { Client, TextChannel, Message as DiscordMessage } from "discord.js";
 import { getDB, isBackfillDone, setBackfillDone, messageExists, ensureEmbeddingTable } from "./db";
 import { embedText, embedBatch } from "./embed";
-import { users } from "../utils/user/initUsers";
 
 export const TARGET_GUILD_ID = "665991423933546526";
 
-export type ContextMessage = {
-  userId: string;
-  userName: string;
-  content: string;
-  timestamp: number;
-};
-
-const trackedUserIds = new Set(users.map((u) => u.discordId));
-
-export function isTrackedUser(userId: string): boolean {
-  return trackedUserIds.has(userId);
-}
-
 export async function storeMessage(
-  messageId: string,
+  discordMessageId: string,
   userId: string,
   userName: string,
   channelId: string,
   content: string,
-  contextWindow: ContextMessage[],
+  replyMessageId: string | null,
+  history: string[],
   createdAt: number
 ): Promise<void> {
   const db = getDB();
 
-  if (messageExists(messageId)) return;
+  if (messageExists(discordMessageId)) return;
   if (!content || content.trim().length === 0) return;
 
   try {
@@ -37,17 +24,18 @@ export async function storeMessage(
     ensureEmbeddingTable(embedding.length);
 
     const insertMsg = db.prepare(`
-      INSERT OR IGNORE INTO messages (message_id, user_id, user_name, channel_id, content, context_window, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO messages (discord_message_id, content, user_id, user_name, reply_message_id, history, channel_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = insertMsg.run(
-      messageId,
+      discordMessageId,
+      content,
       userId,
       userName,
+      replyMessageId,
+      JSON.stringify(history),
       channelId,
-      content,
-      JSON.stringify(contextWindow),
       createdAt
     );
 
@@ -57,7 +45,7 @@ export async function storeMessage(
       ).run(BigInt(result.lastInsertRowid), new Float32Array(embedding));
     }
   } catch (error) {
-    console.error(`[VectorDB] Failed to store message ${messageId}:`, error);
+    console.error(`[VectorDB] Failed to store message ${discordMessageId}:`, error);
   }
 }
 
@@ -77,7 +65,7 @@ export async function backfill(client: Client): Promise<void> {
 
   const threeMonthsAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
   const channels = guild.channels.cache.filter(
-    (ch) => ch.isTextBased() && ch.type === 0 // GuildText
+    (ch) => ch.isTextBased() && ch.type === 0
   );
 
   let totalStored = 0;
@@ -91,7 +79,6 @@ export async function backfill(client: Client): Promise<void> {
       let channelDone = false;
       let channelStored = 0;
 
-      // Collect all messages from this channel within timeframe
       const allMessages: DiscordMessage[] = [];
 
       while (!channelDone) {
@@ -114,21 +101,17 @@ export async function backfill(client: Client): Promise<void> {
         }
 
         lastMessageId = messages.last()?.id;
-
-        // Rate limit: Discord allows 50 requests per second
         await new Promise((r) => setTimeout(r, 200));
       }
 
       // Sort oldest first
       allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
-      // Now process only tracked user messages, with context windows
-      const trackedMessages = allMessages.filter((m) => isTrackedUser(m.author.id) && m.content.trim().length > 0);
+      // Store ALL messages (not just tracked users)
+      const storableMessages = allMessages.filter((m) => m.content.trim().length > 0);
+      if (storableMessages.length === 0) continue;
 
-      // Batch embed all tracked messages
-      if (trackedMessages.length === 0) continue;
-
-      const texts = trackedMessages.map((m) => m.content);
+      const texts = storableMessages.map((m) => m.content);
       let embeddings: number[][];
 
       try {
@@ -143,37 +126,34 @@ export async function backfill(client: Client): Promise<void> {
 
       const db = getDB();
       const insertMsg = db.prepare(`
-        INSERT OR IGNORE INTO messages (message_id, user_id, user_name, channel_id, content, context_window, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO messages (discord_message_id, content, user_id, user_name, reply_message_id, history, channel_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertEmbed = db.prepare(
         "INSERT INTO message_embeddings (message_id, embedding) VALUES (?, ?)"
       );
 
       const transaction = db.transaction(() => {
-        for (let i = 0; i < trackedMessages.length; i++) {
-          const msg = trackedMessages[i];
+        for (let i = 0; i < storableMessages.length; i++) {
+          const msg = storableMessages[i];
           const msgIndex = allMessages.indexOf(msg);
 
-          // Build context window: 5 before, 2 after from ALL messages
-          const contextStart = Math.max(0, msgIndex - 5);
-          const contextEnd = Math.min(allMessages.length, msgIndex + 3); // +3 = focal + 2 after
-          const contextWindow: ContextMessage[] = allMessages
-            .slice(contextStart, contextEnd)
-            .map((m) => ({
-              userId: m.author.id,
-              userName: m.author.displayName || m.author.username,
-              content: m.content,
-              timestamp: m.createdTimestamp,
-            }));
+          // Build history: up to 5 previous message IDs
+          const historyIds: string[] = [];
+          for (let j = msgIndex - 1; j >= Math.max(0, msgIndex - 5); j--) {
+            historyIds.unshift(allMessages[j].id);
+          }
+
+          const replyMessageId = msg.reference?.messageId ?? null;
 
           const result = insertMsg.run(
             msg.id,
+            msg.content,
             msg.author.id,
             msg.author.displayName || msg.author.username,
+            replyMessageId,
+            JSON.stringify(historyIds),
             channelId,
-            msg.content,
-            JSON.stringify(contextWindow),
             msg.createdTimestamp
           );
 

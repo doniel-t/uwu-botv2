@@ -16,7 +16,7 @@ export const getCorrectPrompt = async (
       retrieveRelevant(query, user.discordId, 8),
       retrieveRecent(user.discordId, 24, 20),
     ]);
-    ragContext = formatRetrievedForPrompt(relevant, recent);
+    ragContext = formatRetrievedForPrompt(relevant, recent, user.discordId);
   } catch (error) {
     console.error("[RAG] Failed to retrieve context:", error);
   }

@@ -1,27 +1,60 @@
 import { getDB } from "./db";
 import { embedText } from "./embed";
-import { ContextMessage } from "./ingest";
 
 export type RetrievedMessage = {
   content: string;
   userName: string;
   userId: string;
-  contextWindow: ContextMessage[];
+  discordMessageId: string;
+  history: string[];
+  replyMessageId: string | null;
   createdAt: number;
 };
+
+type MessageRow = {
+  content: string;
+  user_name: string;
+  user_id: string;
+  discord_message_id: string;
+  history: string;
+  reply_message_id: string | null;
+  created_at: number;
+};
+
+function rowToRetrieved(row: MessageRow): RetrievedMessage {
+  return {
+    content: row.content,
+    userName: row.user_name,
+    userId: row.user_id,
+    discordMessageId: row.discord_message_id,
+    history: JSON.parse(row.history) as string[],
+    replyMessageId: row.reply_message_id,
+    createdAt: row.created_at,
+  };
+}
+
+export function getMessagesByIds(ids: string[]): RetrievedMessage[] {
+  if (ids.length === 0) return [];
+  const db = getDB();
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT discord_message_id, content, user_id, user_name, reply_message_id, history, created_at
+       FROM messages WHERE discord_message_id IN (${placeholders})`
+    )
+    .all(...ids) as MessageRow[];
+  return rows.map(rowToRetrieved);
+}
 
 export async function retrieveRelevant(
   query: string,
   userId: string,
-  limit: number = 8
+  limit: number = 20
 ): Promise<RetrievedMessage[]> {
   const db = getDB();
 
   try {
     const queryEmbedding = await embedText(query);
-
-    // Fetch a large candidate pool to maximize recall after user filtering.
-    const candidateLimit = limit * 10;
 
     const rows = db
       .prepare(
@@ -30,7 +63,9 @@ export async function retrieveRelevant(
         m.content,
         m.user_name,
         m.user_id,
-        m.context_window,
+        m.discord_message_id,
+        m.history,
+        m.reply_message_id,
         m.created_at,
         e.distance
       FROM (
@@ -40,41 +75,26 @@ export async function retrieveRelevant(
           AND k = ?
       ) e
       INNER JOIN messages m ON m.id = e.message_id
-      WHERE m.user_id = ?
       ORDER BY e.distance
       LIMIT ?
     `
       )
       .all(
         new Float32Array(queryEmbedding),
-        candidateLimit,
-        userId,
+        limit * 5,
         limit
-      ) as {
-      content: string;
-      user_name: string;
-      user_id: string;
-      context_window: string;
-      created_at: number;
-      distance: number;
-    }[];
+      ) as (MessageRow & { distance: number })[];
 
     if (rows.length > 0) {
-      console.log(`[VectorDB] Found ${rows.length} relevant messages for user ${userId}:`);
+      console.log(`[VectorDB] Found ${rows.length} relevant messages (query for user ${userId}):`);
       for (const row of rows) {
         console.log(`  [dist=${row.distance.toFixed(4)}] ${row.user_name}: ${row.content.slice(0, 80)}`);
       }
     } else {
-      console.log(`[VectorDB] No relevant messages found for user ${userId} (query: "${query.slice(0, 60)}")`);
+      console.log(`[VectorDB] No relevant messages found (query: "${query.slice(0, 60)}")`);
     }
 
-    return rows.map((row) => ({
-      content: row.content,
-      userName: row.user_name,
-      userId: row.user_id,
-      contextWindow: JSON.parse(row.context_window) as ContextMessage[],
-      createdAt: row.created_at,
-    }));
+    return rows.map(rowToRetrieved);
   } catch (error) {
     console.error("[VectorDB] Retrieval error:", error);
     return [];
@@ -93,60 +113,142 @@ export async function retrieveRecent(
     const rows = db
       .prepare(
         `
-      SELECT content, user_name, user_id, context_window, created_at
+      SELECT discord_message_id, content, user_name, user_id, reply_message_id, history, created_at
       FROM messages
       WHERE user_id = ? AND created_at > ?
       ORDER BY created_at DESC
       LIMIT ?
     `
       )
-      .all(userId, since, limit) as {
-      content: string;
-      user_name: string;
-      user_id: string;
-      context_window: string;
-      created_at: number;
-    }[];
+      .all(userId, since, limit) as MessageRow[];
 
     const results = rows.reverse();
 
     if (results.length > 0) {
-      console.log(`[VectorDB] Found ${results.length} recent messages for user ${userId}:`);
-      for (const row of results) {
-        console.log(`  [${new Date(row.created_at).toISOString()}] ${row.user_name}: ${row.content.slice(0, 80)}`);
-      }
+      console.log(`[VectorDB] Found ${results.length} recent messages for user ${userId}`);
     } else {
       console.log(`[VectorDB] No recent messages found for user ${userId} (last ${hoursAgo}h)`);
     }
 
-    return results.map((row) => ({
-      content: row.content,
-      userName: row.user_name,
-      userId: row.user_id,
-      contextWindow: JSON.parse(row.context_window) as ContextMessage[],
-      createdAt: row.created_at,
-    }));
+    return results.map(rowToRetrieved);
   } catch (error) {
     console.error("[VectorDB] Recent retrieval error:", error);
     return [];
   }
 }
 
+export type ChannelHistoryMessage = {
+  discordMessageId: string;
+  content: string;
+  userId: string;
+  userName: string;
+  replyMessageId: string | null;
+  createdAt: number;
+};
+
+export function getChannelHistory(
+  channelId: string,
+  hoursAgo: number = 24,
+  limit: number = 50
+): ChannelHistoryMessage[] {
+  const db = getDB();
+  const since = Date.now() - hoursAgo * 60 * 60 * 1000;
+
+  const rows = db
+    .prepare(
+      `SELECT discord_message_id, content, user_id, user_name, reply_message_id, created_at
+       FROM messages
+       WHERE channel_id = ? AND created_at > ?
+       ORDER BY created_at DESC
+       LIMIT ?`
+    )
+    .all(channelId, since, limit) as {
+    discord_message_id: string;
+    content: string;
+    user_id: string;
+    user_name: string;
+    reply_message_id: string | null;
+    created_at: number;
+  }[];
+
+  return rows.reverse().map((r) => ({
+    discordMessageId: r.discord_message_id,
+    content: r.content,
+    userId: r.user_id,
+    userName: r.user_name,
+    replyMessageId: r.reply_message_id,
+    createdAt: r.created_at,
+  }));
+}
+
 export function formatRetrievedForPrompt(
   relevant: RetrievedMessage[],
-  recent: RetrievedMessage[]
+  recent: RetrievedMessage[],
+  targetUserId?: string
 ): string {
   let result = "";
 
   if (relevant.length > 0) {
-    result += "# Relevant things this user has said before:\n";
+    // Expand history for each relevant message
+    const allHistoryIds = new Set<string>();
+    const allReplyIds = new Set<string>();
     for (const msg of relevant) {
-      const date = new Date(msg.createdAt).toLocaleDateString("en-US");
-      // Show the context window for richer understanding
-      const context = msg.contextWindow
-        .map((c) => `  ${c.userName}: ${c.content}`)
-        .join("\n");
-      result += `\n[${date}] Conversation context:\n${context}\n`;
+      for (const id of msg.history) allHistoryIds.add(id);
+      if (msg.replyMessageId) allReplyIds.add(msg.replyMessageId);
+    }
+    const contextMessages = getMessagesByIds([...allHistoryIds, ...allReplyIds]);
+    const contextMap = new Map(contextMessages.map((m) => [m.discordMessageId, m]));
+
+    // Prioritize: messages from target user first, then others
+    let userMessages: RetrievedMessage[];
+    let otherMessages: RetrievedMessage[];
+    if (targetUserId) {
+      userMessages = relevant.filter((m) => m.userId === targetUserId);
+      otherMessages = relevant.filter((m) => m.userId !== targetUserId);
+    } else {
+      userMessages = relevant;
+      otherMessages = [];
+    }
+
+    const formatGroup = (msgs: RetrievedMessage[]) => {
+      let out = "";
+      for (const msg of msgs) {
+        const date = new Date(msg.createdAt).toLocaleDateString("en-US");
+
+        // Show history context
+        const historyMsgs = msg.history
+          .map((id) => contextMap.get(id))
+          .filter(Boolean) as RetrievedMessage[];
+
+        if (historyMsgs.length > 0) {
+          out += `\n[${date}] Conversation context:\n`;
+          for (const h of historyMsgs) {
+            out += `  ${h.userName}: ${h.content}\n`;
+          }
+          out += `  ${msg.userName}: ${msg.content}\n`;
+        } else {
+          out += `\n[${date}] ${msg.userName}: ${msg.content}\n`;
+        }
+
+        // Show replied-to message
+        if (msg.replyMessageId) {
+          const replied = contextMap.get(msg.replyMessageId);
+          if (replied) {
+            out += `  (replying to ${replied.userName}: ${replied.content})\n`;
+          }
+        }
+      }
+      return out;
+    };
+
+    if (userMessages.length > 0) {
+      result += "# Messages from this user:\n";
+      result += formatGroup(userMessages);
+    }
+
+    if (otherMessages.length > 0) {
+      result += "\n# Related messages from others:\n";
+      result += formatGroup(otherMessages);
     }
   }
 

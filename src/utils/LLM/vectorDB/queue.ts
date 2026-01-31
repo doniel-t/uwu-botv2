@@ -1,14 +1,14 @@
-import { Message as DiscordMessage, Collection } from "discord.js";
-import { storeMessage, ContextMessage } from "./ingest";
+import { Message as DiscordMessage } from "discord.js";
+import { storeMessage } from "./ingest";
+import { getDB } from "./db";
 
-// Queue messages for 30 seconds to allow context window to fill
 type QueuedMessage = {
   message: DiscordMessage;
   timestamp: number;
 };
 
 const messageQueue: QueuedMessage[] = [];
-const DELAY_MS = 30_000; // 30 seconds
+const DELAY_MS = 30_000;
 
 let processingInterval: NodeJS.Timeout | null = null;
 
@@ -26,72 +26,40 @@ export function startQueueProcessor(): void {
     const now = Date.now();
     const ready: QueuedMessage[] = [];
 
-    // Find messages that have waited long enough
     while (messageQueue.length > 0 && now - messageQueue[0].timestamp >= DELAY_MS) {
       ready.push(messageQueue.shift()!);
     }
 
     for (const queued of ready) {
       try {
-        // Fetch context window: 5 messages before, 2 messages after
-        const channel = queued.message.channel;
-        const contextMessages: ContextMessage[] = [];
+        const msg = queued.message;
 
-        // Fetch messages before
-        const beforeMessages = await channel.messages.fetch({
-          before: queued.message.id,
-          limit: 5,
-        });
+        // Build history from DB: last 5 message IDs in same channel
+        const db = getDB();
+        const rows = db
+          .prepare(
+            `SELECT discord_message_id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 5`
+          )
+          .all(msg.channel.id) as { discord_message_id: string }[];
 
-        // Reverse so oldest is first
-        const beforeArray: any[] = Array.from(beforeMessages.values()).reverse();
-        for (const msg of beforeArray) {
-          contextMessages.push({
-            userId: msg.author.id,
-            userName: msg.author.displayName || msg.author.username,
-            content: msg.content,
-            timestamp: msg.createdTimestamp,
-          });
-        }
-
-        // Add the focal message
-        contextMessages.push({
-          userId: queued.message.author.id,
-          userName: queued.message.author.displayName || queued.message.author.username,
-          content: queued.message.content,
-          timestamp: queued.message.createdTimestamp,
-        });
-
-        // Fetch messages after
-        const afterMessages = await channel.messages.fetch({
-          after: queued.message.id,
-          limit: 2,
-        });
-
-        const afterArray: any[] = Array.from(afterMessages.values()).reverse();
-        for (const msg of afterArray) {
-          contextMessages.push({
-            userId: msg.author.id,
-            userName: msg.author.displayName || msg.author.username,
-            content: msg.content,
-            timestamp: msg.createdTimestamp,
-          });
-        }
+        const history = rows.map((r) => r.discord_message_id).reverse();
+        const replyMessageId = msg.reference?.messageId ?? null;
 
         await storeMessage(
-          queued.message.id,
-          queued.message.author.id,
-          queued.message.author.displayName || queued.message.author.username,
-          queued.message.channel.id,
-          queued.message.content,
-          contextMessages,
-          queued.message.createdTimestamp
+          msg.id,
+          msg.author.id,
+          msg.author.displayName || msg.author.username,
+          msg.channel.id,
+          msg.content,
+          replyMessageId,
+          history,
+          msg.createdTimestamp
         );
       } catch (error) {
         console.error("[VectorDB] Error processing queued message:", error);
       }
     }
-  }, 5_000); // Check every 5 seconds
+  }, 5_000);
 }
 
 export function stopQueueProcessor(): void {
