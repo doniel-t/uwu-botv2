@@ -386,7 +386,7 @@ async function main() {
     assert.ok(gpu.length >= 1 && gpu.every((f) => f.subjectUserId === DANIEL && !f.ammo));
     // A roast hands over the target's facts even when nothing matches the topic.
     const roast = selectFactsForReply(G, CH, [SERGEJ, DANIEL], [SERGEJ], "roast him", "roast him");
-    assert.ok(roast.length >= 2 && roast.length <= 4, `got ${roast.length}`);
+    assert.strictEqual(roast.length, 2, "two facts of ammo, no more");
     assert.ok(roast.every((f) => f.subjectUserId === SERGEJ && f.ammo), "only the target's facts are ammo");
     assert.ok(selectFactsForReply(G, CH, [SERGEJ], [SERGEJ], "", "cook this guy").length >= 2, "'cook' counts as a roast");
   });

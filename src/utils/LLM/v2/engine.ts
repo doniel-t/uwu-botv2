@@ -44,7 +44,7 @@ function memoryBlock(facts: RankedFact[], names: Map<string, string>): string {
   let out = "";
   if (ammo.length) {
     out +=
-      "\n\n<roast_material>\nWhat you know about the target. Pick the 1-2 most damaging and twist the knife, tied to what they just said. Don't list them.\n" +
+      "\n\n<roast_material>\nOptional ammo about the target. Use AT MOST ONE, only if it makes the joke land harder. Never list or summarize these.\n" +
       ammo.map(line).join("\n") +
       "\n</roast_material>";
   }
@@ -52,14 +52,17 @@ function memoryBlock(facts: RankedFact[], names: Map<string, string>): string {
   return out;
 }
 
-const MAX_PROFILES = 4;
+const MAX_PROFILES = 2;
+/** Profiles are background on who someone is, not a list of material to recite. */
+const PROFILE_PROMPT_CHARS = 500;
 
 function profilesBlock(guildId: string, userIds: string[], names: Map<string, string>): string {
   const lines: string[] = [];
   for (const id of userIds.slice(0, MAX_PROFILES)) {
     const p = getProfile(guildId, id);
     if (!p) continue;
-    lines.push(`## ${names.get(id) ?? "unknown"} [user ${id}]\n${p.profile}`);
+    const text = p.profile.length > PROFILE_PROMPT_CHARS ? p.profile.slice(0, PROFILE_PROMPT_CHARS).replace(/\s+\S*$/, "") + "…" : p.profile;
+    lines.push(`## ${names.get(id) ?? "unknown"} [user ${id}]\n${text}`);
   }
   return lines.length ? `\n\n<profiles>\n${lines.join("\n\n")}\n</profiles>` : "";
 }
@@ -224,7 +227,8 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
 
     const last = ctx.messages[ctx.messages.length - 1];
     if (last.role === "user" && typeof last.content === "string") {
-      const profileIds = [...new Set([...ctx.targetIds, ctx.requesterId, ...subjects])];
+      // Only the people the reply is about (the target, or the requester when they talk about themself).
+      const profileIds = [...new Set(ctx.targetIds)];
       const text = last.content + profilesBlock(guildId, profileIds, ctx.names) + memoryBlock(facts, ctx.names) + images.intro;
       ctx.messages[ctx.messages.length - 1] =
         images.parts.length > 0 ? { role: "user", content: [{ type: "text", text }, ...images.parts] } : { role: "user", content: text };

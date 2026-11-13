@@ -54,13 +54,11 @@ export function markProfileDirty(guildId: string, userId: string): void {
     .run(guildId, userId, Date.now());
 }
 
-const PROFILE_SYSTEM = `You write short internal profiles of members of a Discord friend group, for a sarcastic bot that roasts them.
-Use ONLY the facts and messages given. Never invent anything. Plain text, max 150 words, no preamble, no dates, these sections (skip empty ones):
-Roast material: their L's, what they're bad at, embarrassing admissions, cringe takes, obsessions, flexes worth deflating, what friends tease them about. Most important section.
-Who: job, studies, where they live, life situation.
-Into: games (mains, ranks), hobbies, media, tech, setups.
-Personality: humor, attitude, role in the group.
+const PROFILE_SYSTEM = `You write short internal profiles of members of a Discord friend group, for a sarcastic bot that chats with and roasts them.
+Use ONLY the facts and messages given. Never invent anything. Plain text, max 90 words, no preamble, no dates. Describe the person, don't list trivia:
+Personality: humor, attitude, role in the group, what they get teased about.
 Talks like: language(s), tone, slang, catchphrases, typing quirks.
+Into: their main games/hobbies and what they're known for.
 Mark hearsay ("according to X"). Leave out health, sexuality, religion and politics unless the person jokes about it themself.`;
 
 let generateImpl = async (prompt: string): Promise<string> => {

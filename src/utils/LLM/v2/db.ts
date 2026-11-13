@@ -193,6 +193,11 @@ const MIGRATIONS: Migration[] = [
       UPDATE user_profiles SET dirty = 1, dirty_since = 0, updated_at = 0 WHERE profile IS NOT NULL;
     `,
   },
+  {
+    // Shorter profiles without a roast list: rewrite them.
+    version: 6,
+    sql: `UPDATE user_profiles SET dirty = 1, dirty_since = 0, updated_at = 0 WHERE profile IS NOT NULL;`,
+  },
 ];
 
 export function getV2DB(): Database.Database {

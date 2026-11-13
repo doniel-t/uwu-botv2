@@ -139,7 +139,8 @@ export function isRoastRequest(instruction: string): boolean {
 /** `ammo`: picked as roast material about the target (not because it matches the topic). */
 export type RankedFact = Fact & { relevance: number; ammo: boolean };
 
-const ROAST_AMMO = 4;
+/** Few on purpose: more facts make the model list them instead of writing a joke. */
+const ROAST_AMMO = 2;
 
 function recentlyUsed(guildId: string, channelId: string): Set<number> {
   const rows = getV2DB()
@@ -187,7 +188,7 @@ export function selectFactsForReply(
     const extra = scored
       .filter((f) => !targetIds.includes(f.subjectUserId) && f.relevance > 0 && f.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 2);
+      .slice(0, 1);
     return [...ammo, ...extra];
   }
 
@@ -317,6 +318,9 @@ Rules:
 - Every fact needs: the source message ref, the Discord user ID it is ABOUT, a snake_case predicate, a value, and an exact quote copied from the source message.
 - The subject must be a user ID that appears in the log (the author, someone they mention, reply to, or a name annotated with [= ... user ID]). Never guess IDs.
 
+The bar is high. Only extract something a friend would still bring up weeks later to tease them or to describe them.
+Skip trivia and one-off remarks: "considered writing a plugin", "it's friday", "watched a video", "had pizza", passing opinions.
+
 What to extract (lasting things only):
 - what they're bad at, their L's and fails, embarrassing confessions, cringe things they did
 - takes they stand by, obsessions, hyperfixations, guilty pleasures, what they hate
@@ -339,7 +343,7 @@ classification:
 - Skip greetings, questions and anything about the bot.
 - Reuse predicates from the known facts list when the meaning matches.
 - "[image: ...]" is an automatic description of an image the author posted. Only extract a fact from an image when the author's own text says it is theirs or about them ("my new setup", "finally hit diamond"); then the quote may come from the description. Memes and random pictures say nothing about the poster.
-- Most batches contain zero facts. Return {"facts": []} when nothing qualifies.`;
+- Most batches contain zero facts, and that is fine. Return {"facts": []} when nothing clears the bar.`;
 
 function normalizeQuote(s: string): string {
   return s
