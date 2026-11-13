@@ -1,1 +1,11 @@
-onlyBuiltDependencies: '@discordjs/opus,better-sqlite3,bufferutil,canvas,erlpack,ffmpeg-static,utf-8-validate,zlib-sync'
+# pnpm 11+: packages allowed (true) or not allowed (false) to run install scripts.
+allowBuilds:
+  '@discordjs/opus': true
+  better-sqlite3: true
+  bufferutil: true
+  canvas: true
+  erlpack: true
+  ffmpeg-static: true
+  utf-8-validate: true
+  zlib-sync: true
+  '@openrouter/sdk': false

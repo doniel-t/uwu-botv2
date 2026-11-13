@@ -1,6 +1,7 @@
 FROM node:20-slim
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pinned: pnpm@latest broke builds when pnpm 11+ changed how build scripts are approved.
+RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
 
 WORKDIR /app
 
@@ -21,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and install dependencies
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
