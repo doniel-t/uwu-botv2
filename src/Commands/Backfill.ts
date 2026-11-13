@@ -21,6 +21,12 @@ class Backfill extends NormalCommandClass {
       type: ApplicationCommandOptionType.Channel,
     },
     {
+      name: "reset",
+      description: "DELETE all learned facts and profiles here first, then re-learn (asks in DM)",
+      required: false,
+      type: ApplicationCommandOptionType.Boolean,
+    },
+    {
       name: "images",
       description: "Also describe old images (costs more, default false)",
       required: false,
@@ -69,6 +75,7 @@ class Backfill extends NormalCommandClass {
         since,
         channelId: optChannelId(interaction, "channel") ?? undefined,
         includeImages: optBoolean(interaction, "images") ?? false,
+        reset: optBoolean(interaction, "reset") ?? false,
       });
       if ("error" in res) await answer(res.error);
     } catch (err) {

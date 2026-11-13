@@ -1,6 +1,6 @@
 import { jsonSchema, tool, ToolSet } from "ai";
 import { getOpenRouterKey, logAPICall } from "../utils/api/openrouter";
-import { factIsCurrent, searchFacts, Fact } from "./facts";
+import { factIsCurrent, getFact, getFactSources, jumpLink, searchFacts, Fact } from "./facts";
 import { getMessagesAround, searchMessages, storedRange } from "./messages";
 import { getProfile } from "./profiles";
 import { fmtDate, fmtDateTime, parseDateInput } from "./time";
@@ -154,6 +154,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
           profile: profile ? profile.profile : null,
           facts: facts.map((f) => ({
             id: f.id,
+            source_message_ids: f.sourceMessageIds,
             fact: `${f.predicate.replace(/_/g, " ")}: ${f.value}`,
             kind: f.kind,
             status: factIsCurrent(f) ? "current" : f.status === "superseded" ? "replaced by a newer fact" : "expired",
@@ -217,6 +218,36 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
             author: m.isOwnBot ? "you (the bot)" : `${m.authorName} [user ${m.authorId}]`,
             text: [m.content, ...m.images.filter((i) => i.caption).map((i) => `[image: ${i.caption}]`)].join(" ").slice(0, 400),
           })),
+        };
+      },
+    } as any),
+
+    get_fact_source: tool({
+      description:
+        "Get the proof for a remembered fact: the original Discord message(s) it was learned from, with the exact quote and a jump link. " +
+        "Use whenever someone asks where/when they said something, wants proof, or denies a fact. Post the link in your reply.",
+      inputSchema: jsonSchema<{ fact_id: number }>({
+        type: "object",
+        additionalProperties: false,
+        required: ["fact_id"],
+        properties: { fact_id: { type: "integer", description: "the fact id, shown as [fact #id]" } },
+      }),
+      execute: async (input: { fact_id: number }) => {
+        trace.used.push("get_fact_source");
+        const fact = getFact(ctx.guildId, Number(input.fact_id));
+        if (!fact) return { error: `no fact #${input.fact_id} in this server` };
+        const sources = getFactSources(ctx.guildId, fact.id).filter((src) => !src.channelId || ctx.canView(src.channelId));
+        return {
+          fact: `${ctx.names.get(fact.subjectUserId) ?? `user ${fact.subjectUserId}`}: ${fact.predicate.replace(/_/g, " ")}: ${fact.value}`,
+          sources: sources.length
+            ? sources.map((src) => ({
+                link: src.link ?? jumpLink(ctx.guildId, ctx.channelId, src.messageId),
+                author: src.authorName ?? `user ${src.authorId}`,
+                channel: src.channelId ? `#${ctx.channelName(src.channelId)}` : "unknown",
+                quote: src.quote,
+                full_message: src.content ? src.content.slice(0, 400) : "(message no longer stored)",
+              }))
+            : "no source message you can show here (deleted, or in a channel the requester can't see)",
         };
       },
     } as any),

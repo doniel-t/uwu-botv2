@@ -198,6 +198,13 @@ const MIGRATIONS: Migration[] = [
     version: 6,
     sql: `UPDATE user_profiles SET dirty = 1, dirty_since = 0, updated_at = 0 WHERE profile IS NOT NULL;`,
   },
+  {
+    version: 7,
+    sql: `
+      ALTER TABLE facts ADD COLUMN category TEXT;
+      ALTER TABLE backfill_jobs ADD COLUMN reset INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export function getV2DB(): Database.Database {

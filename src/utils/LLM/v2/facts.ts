@@ -13,7 +13,7 @@ import { contentWords, normalizeWord } from "./text";
 import { renderImages } from "./vision";
 import { createOpenRouter, computeCost, logAPICall } from "../utils/api/openrouter";
 
-export const EXTRACTOR_VERSION = "v2.1";
+export const EXTRACTOR_VERSION = "v2.2";
 
 export type FactKind = "self_report" | "third_party_claim" | "temporary_state" | "curated_seed";
 
@@ -32,6 +32,9 @@ export type Fact = {
   reporters: string[];
   /** active | superseded | retracted (expired facts keep "active" but expiresAt < now) */
   status: string;
+  /** Discord message IDs that prove this fact */
+  sourceMessageIds: string[];
+  category: string | null;
 };
 
 type FactRow = {
@@ -48,6 +51,8 @@ type FactRow = {
   evidence_count: number;
   reporters: string | null;
   status: string;
+  message_ids: string | null;
+  category: string | null;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -55,7 +60,8 @@ const TEMP_STATE_TTL = 3 * DAY;
 const HEARSAY_TTL = 90 * DAY;
 
 const FACT_SELECT = `
-  SELECT f.*, COUNT(e.message_id) AS evidence_count, GROUP_CONCAT(DISTINCT e.reporter_user_id) AS reporters
+  SELECT f.*, COUNT(e.message_id) AS evidence_count, GROUP_CONCAT(DISTINCT e.reporter_user_id) AS reporters,
+    GROUP_CONCAT(DISTINCT e.message_id) AS message_ids
   FROM facts f LEFT JOIN fact_evidence e ON e.fact_id = f.id`;
 
 function fromRow(r: FactRow): Fact {
@@ -73,6 +79,8 @@ function fromRow(r: FactRow): Fact {
     evidenceCount: r.evidence_count,
     reporters: r.reporters ? r.reporters.split(",") : [],
     status: r.status,
+    sourceMessageIds: r.message_ids ? r.message_ids.split(",") : [],
+    category: r.category ?? null,
   };
 }
 
@@ -88,6 +96,74 @@ export function getActiveFacts(guildId: string, subjectIds: string[]): Fact[] {
     )
     .all(guildId, ...subjectIds, Date.now()) as FactRow[];
   return rows.map(fromRow);
+}
+
+export type FactSource = {
+  messageId: string;
+  channelId: string | null;
+  authorId: string;
+  authorName: string | null;
+  content: string | null;
+  createdAt: number | null;
+  quote: string;
+  link: string | null;
+};
+
+export function jumpLink(guildId: string, channelId: string, messageId: string): string {
+  return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+}
+
+/** The messages a fact was learned from, with jump links. */
+export function getFactSources(guildId: string, factId: number): FactSource[] {
+  const rows = getV2DB()
+    .prepare(
+      `SELECT e.message_id, e.reporter_user_id, e.evidence_quote, m.channel_id, m.author_name, m.content, m.created_at
+       FROM fact_evidence e LEFT JOIN messages m ON m.guild_id = e.guild_id AND m.message_id = e.message_id
+       WHERE e.guild_id = ? AND e.fact_id = ? ORDER BY m.created_at`
+    )
+    .all(guildId, factId) as {
+    message_id: string;
+    reporter_user_id: string;
+    evidence_quote: string;
+    channel_id: string | null;
+    author_name: string | null;
+    content: string | null;
+    created_at: number | null;
+  }[];
+  return rows.map((r) => ({
+    messageId: r.message_id,
+    channelId: r.channel_id,
+    authorId: r.reporter_user_id,
+    authorName: r.author_name,
+    content: r.content,
+    createdAt: r.created_at,
+    quote: r.evidence_quote,
+    link: r.channel_id ? jumpLink(guildId, r.channel_id, r.message_id) : null,
+  }));
+}
+
+/** Wipe everything learned in a guild and mark its messages for re-learning (backfill reset). */
+export function resetGuildMemory(guildId: string): { facts: number; profiles: number; messages: number } {
+  const db = getV2DB();
+  let out = { facts: 0, profiles: 0, messages: 0 };
+  db.transaction(() => {
+    db.prepare("DELETE FROM fact_usage WHERE guild_id = ?").run(guildId);
+    db.prepare("DELETE FROM fact_evidence WHERE guild_id = ?").run(guildId);
+    out.facts = db.prepare("DELETE FROM facts WHERE guild_id = ?").run(guildId).changes;
+    out.profiles = db.prepare("DELETE FROM user_profiles WHERE guild_id = ?").run(guildId).changes;
+    out.messages = db
+      .prepare("UPDATE messages SET extracted = 0 WHERE guild_id = ? AND is_own_bot = 0 AND deleted_at IS NULL")
+      .run(guildId).changes;
+  })();
+  return out;
+}
+
+export function countGuildMemory(guildId: string): { facts: number; profiles: number } {
+  const db = getV2DB();
+  return {
+    facts: (db.prepare("SELECT COUNT(*) AS c FROM facts WHERE guild_id = ?").get(guildId) as { c: number }).c,
+    profiles: (db.prepare("SELECT COUNT(*) AS c FROM user_profiles WHERE guild_id = ? AND profile IS NOT NULL").get(guildId) as { c: number }).c,
+  };
 }
 
 export function getFact(guildId: string, factId: number): Fact | null {
@@ -267,10 +343,37 @@ type Candidate = {
   predicate: string;
   value: string;
   classification: "self_report" | "third_party_claim" | "joke" | "temporary_state" | "correction";
+  category: string;
   multi_valued: boolean;
   evidence_quote: string;
   supersedes_fact_id: number | null;
 };
+
+/** The only kinds of facts that are kept: things that describe who someone is. */
+export const FACT_CATEGORIES = [
+  "identity",
+  "work_or_school",
+  "location",
+  "game",
+  "skill_or_rank",
+  "hobby",
+  "taste",
+  "habit",
+  "personality",
+  "possession",
+  "relationship",
+  "reputation",
+] as const;
+
+/** Plans, intentions and time-bound statements are never facts, whatever the model says. */
+const TEMPORAL_VALUE_RE =
+  /\b(plan(s|ned|ning)?|going to|gonna|will|wants? to|wanted to|wanna|would like|hop(e|es|ing) to|tomorrow|tonight|today|yesterday|next (week|month|year|weekend|time)|this (week|month|year|weekend|morning|evening)|last (week|month|night|weekend)|later|soon|currently|right now|at the moment|recently|considering|thinking (about|of)|might|maybe|about to|upcoming|deadline|appointment|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
+const TEMPORAL_QUOTE_RE =
+  /\b(plan(s|ned|ning)?|going to|gonna|wanna|tomorrow|tonight|next (week|month|year|weekend)|this (week|weekend)|considering|thinking about|about to)\b/i;
+
+export function looksTemporal(value: string, quote: string): boolean {
+  return TEMPORAL_VALUE_RE.test(value) || TEMPORAL_QUOTE_RE.test(quote);
+}
 
 const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
   type: "object",
@@ -289,6 +392,7 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
           "predicate",
           "value",
           "classification",
+          "category",
           "multi_valued",
           "evidence_quote",
           "supersedes_fact_id",
@@ -302,6 +406,7 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
             type: "string",
             enum: ["self_report", "third_party_claim", "joke", "temporary_state", "correction"],
           },
+          category: { type: "string", enum: FACT_CATEGORIES as unknown as string[] },
           multi_valued: { type: "boolean", description: "true if a person can have several values (likes, owns)" },
           evidence_quote: { type: "string", description: "exact substring of the source message" },
           supersedes_fact_id: { type: ["integer", "null"], description: "id of a known fact this replaces, or null" },
@@ -311,36 +416,43 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
   },
 });
 
-const EXTRACTOR_SYSTEM = `You extract lasting personal facts about members of a Discord friend group. A sarcastic bot uses them to roast people, so the most valuable facts are good roast material.
+const EXTRACTOR_SYSTEM = `You build profiles of members of a Discord friend group by extracting lasting facts about WHO THEY ARE from chat. A sarcastic bot later uses these profiles to talk to and roast them.
 
 Rules:
 - Only extract facts stated in messages marked [EXTRACT]. [CONTEXT] messages are only there to resolve references.
-- Every fact needs: the source message ref, the Discord user ID it is ABOUT, a snake_case predicate, a value, and an exact quote copied from the source message.
+- Every fact needs: the source message ref, the Discord user ID it is ABOUT, a category, a snake_case predicate, a value, and an exact quote copied from the source message.
 - The subject must be a user ID that appears in the log (the author, someone they mention, reply to, or a name annotated with [= ... user ID]). Never guess IDs.
 
-The bar is high. Only extract something a friend would still bring up weeks later to tease them or to describe them.
-Skip trivia and one-off remarks: "considered writing a plugin", "it's friday", "watched a video", "had pizza", passing opinions.
+Only extract facts that describe the person in a lasting way, in one of these categories:
+- identity: age group, nationality, languages, background
+- work_or_school: job, field, studies
+- location: where they live (city/country), not where they are right now
+- game: games they play a lot, mains, platforms
+- skill_or_rank: ranks, skill level, what they're good or bad at
+- hobby: hobbies, sports, instruments, creative stuff
+- taste: stable likes and dislikes (music, anime, food, media they love or hate)
+- habit: recurring behavior (sleep schedule, always late, energy drinks, hours played)
+- personality: traits they show or admit (rage-quits, competitive, lazy)
+- possession: defining things they own (PC setup, car, pet)
+- relationship: relationships within the group (best friends, rivals, roommates)
+- reputation: what the group consistently says or jokes about them
 
-What to extract (lasting things only):
-- what they're bad at, their L's and fails, embarrassing confessions, cringe things they did
-- takes they stand by, obsessions, hyperfixations, guilty pleasures, what they hate
-- habits and quirks: sleep schedule, diet, spending, energy drinks, hours in a game, being late
-- games, mains, ranks/skill level, setups and gear, hobbies, job or studies, where they live
-- flexes they're proud of (great to deflate) and insecurities they joke about themselves
-- what friends say about them (third_party_claim)
-
-Never extract anything temporary or time-bound: moods, being sick, "today", "this week", "right now", where they currently are, plans, schedules, deadlines.
-Values never contain dates or relative times. Write the lasting version ("plays bass", "mains Yasuo", "hardstuck silver"), not "started bass last month".
+The bar is high: would this still be true and worth knowing about them in a month? If not, skip it.
+NEVER extract:
+- plans, intentions, wishes, considerations ("going to", "want to", "thinking about", "might", "planning")
+- anything temporary or dated: moods, being sick, today/this week/currently, where they are right now, schedules, events, deadlines
+- one-off actions and trivia ("watched a video", "had pizza", "considered writing a plugin")
+- passing opinions about one thing, questions, greetings, anything about the bot
+Values never contain dates or relative times. Write the lasting version ("plays bass", "mains Yasuo", "hardstuck silver").
 
 classification:
-- self_report: the author states something about themself ("I bought a 4070").
+- self_report: the author states something about themself ("I main Yasuo").
 - third_party_claim: the author states something about someone else ("Alice is hardstuck gold"). The subject is the other person.
 - correction: the author corrects an earlier fact about themself ("sold the 4070, have a 5070 now"). Set supersedes_fact_id when a known fact is replaced.
 - joke: sarcasm, irony, hyperbole, memes, roleplay ("I'm literally a toaster"). When unsure, use joke.
-- (temporary_state exists only for compatibility. Don't use it; skip temporary things instead.)
+- (temporary_state exists only for compatibility. Never use it.)
 
 - Quoting someone else ("Bob said 'I bought a 4090'") is NOT a self-report by the author.
-- Skip greetings, questions and anything about the bot.
 - Reuse predicates from the known facts list when the meaning matches.
 - "[image: ...]" is an automatic description of an image the author posted. Only extract a fact from an image when the author's own text says it is theirs or about them ("my new setup", "finally hit diamond"); then the quote may come from the description. Memes and random pictures say nothing about the poster.
 - Most batches contain zero facts, and that is fine. Return {"facts": []} when nothing clears the bar.`;
@@ -378,8 +490,10 @@ export function validateCandidates(
     const message = refToMessage.get(c.source_ref);
     if (!message || message.isOwnBot) continue;
     if (c.classification === "joke") continue;
-    // No temporary or time-bound facts at all.
+    // No temporary or time-bound facts at all, only profile categories.
     if (c.classification === "temporary_state") continue;
+    if (!(FACT_CATEGORIES as readonly string[]).includes(c.category)) continue;
+    if (looksTemporal(c.value ?? "", c.evidence_quote ?? "")) continue;
 
     const allowedSubjects = new Set<string>([message.authorId, ...message.mentionedUserIds]);
     message.nameRefs.forEach((r) => r.confidence === "high" && r.userId && allowedSubjects.add(r.userId));
@@ -484,8 +598,8 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
           db
             .prepare(
               `INSERT INTO facts (guild_id, subject_user_id, predicate, value, normalized_key, multi_valued, kind, status,
-                 source_kind, first_seen_at, last_confirmed_at, expires_at, supersedes_fact_id, extractor_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'extracted', ?, ?, ?, ?, ?)`
+                 source_kind, first_seen_at, last_confirmed_at, expires_at, supersedes_fact_id, extractor_version, category)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'extracted', ?, ?, ?, ?, ?, ?)`
             )
             .run(
               guildId,
@@ -500,7 +614,8 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
               saidAt,
               expires,
               supersedesId,
-              EXTRACTOR_VERSION
+              EXTRACTOR_VERSION,
+              f.category ?? null
             ).lastInsertRowid
         );
         stored++;

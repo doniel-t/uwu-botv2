@@ -14,7 +14,7 @@ import {
 } from "discord.js";
 import { computeCost } from "../utils/api/openrouter";
 import { getV2DB } from "./db";
-import { EXTRACTION_BATCH_SIZE, isWorthExtracting, runExtractionBatch } from "./facts";
+import { countGuildMemory, EXTRACTION_BATCH_SIZE, isWorthExtracting, resetGuildMemory, runExtractionBatch } from "./facts";
 import { getMessage, getMessagesBefore, getUnextractedRange, StoredMessage, storeDiscordMessage } from "./messages";
 import { getAISettings, MODELS } from "./settings";
 import { captionQueueSize, queueCaptionsFor } from "./vision";
@@ -54,6 +54,7 @@ type JobRow = {
   until: number;
   channel_ids: string;
   include_images: number;
+  reset: number;
   state: JobState;
   dm_channel_id: string | null;
   dm_message_id: string | null;
@@ -212,8 +213,16 @@ export type Estimate = {
   minutes: number;
 };
 
-export function estimateBackfill(guildId: string, channelIds: string[], since: number, until: number, includeImages: boolean): Estimate {
-  const rows = getUnextractedRange(guildId, channelIds, since, until);
+export function estimateBackfill(
+  guildId: string,
+  channelIds: string[],
+  since: number,
+  until: number,
+  includeImages: boolean,
+  /** reset: everything in range will be re-learned, not only new messages */
+  includeExtracted = false
+): Estimate {
+  const rows = getUnextractedRange(guildId, channelIds, since, until, includeExtracted);
   const byChannel = new Map<string, StoredMessage[]>();
   for (const r of rows) byChannel.set(r.channelId, [...(byChannel.get(r.channelId) ?? []), r]);
 
@@ -377,6 +386,8 @@ export type BackfillRequest = {
   since: number;
   channelId?: string;
   includeImages: boolean;
+  /** delete all learned facts and profiles in the guild first, then re-learn the range */
+  reset?: boolean;
 };
 
 /**
@@ -406,10 +417,22 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
   const id = Number(
     getV2DB()
       .prepare(
-        `INSERT INTO backfill_jobs (guild_id, owner_id, since, until, channel_ids, include_images, state, dm_channel_id, dm_message_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)`
+        `INSERT INTO backfill_jobs (guild_id, owner_id, since, until, channel_ids, include_images, reset, state, dm_channel_id, dm_message_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)`
       )
-      .run(guild.id, req.ownerId, req.since, until, JSON.stringify(req.channelId ? [req.channelId] : []), req.includeImages ? 1 : 0, dm.channel.id, dm.id, now, now)
+      .run(
+        guild.id,
+        req.ownerId,
+        req.since,
+        until,
+        JSON.stringify(req.channelId ? [req.channelId] : []),
+        req.includeImages ? 1 : 0,
+        req.reset ? 1 : 0,
+        dm.channel.id,
+        dm.id,
+        now,
+        now
+      )
       .lastInsertRowid
   );
   running.set(id, { stop: false });
@@ -425,7 +448,8 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
       });
       running.delete(id);
 
-      const est = estimateBackfill(guild.id, scan.channelIds, req.since, until, req.includeImages);
+      const est = estimateBackfill(guild.id, scan.channelIds, req.since, until, req.includeImages, !!req.reset);
+      const existing = req.reset ? countGuildMemory(guild.id) : null;
       updateJob(id, {
         state: "awaiting_confirm",
         channel_ids: JSON.stringify(scan.channelIds),
@@ -435,7 +459,7 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
         estimate_cost: est.total,
       });
 
-      if (est.calls === 0 && est.images === 0) {
+      if (est.calls === 0 && est.images === 0 && !req.reset) {
         updateJob(id, { state: "done" });
         await dm.edit(
           `**Backfill for ${guild.name}** since ${day(req.since)}\nScanned ${num(scan.scanned)} messages in ${scan.channels} channels. Nothing new to analyze.`
@@ -451,6 +475,9 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
         `\n\n**Estimated cost: ~${money(est.total)}**` +
         (est.total != null ? ` (could be up to ~${money(est.total * 1.5)})` : " (model price not loaded)") +
         ` · ~${est.minutes} min\n` +
+        (existing
+          ? `\n⚠️ **Reset:** first DELETES all ${num(existing.facts)} learned facts and ${num(existing.profiles)} profiles in this server, then re-learns everything in the range. This can't be undone.\n`
+          : "") +
         `-# Opted-out users are skipped. Stops automatically above ${OVERSPEND_FACTOR}x the estimate. Expires in 30 min.`;
 
       await dm.edit({
@@ -480,8 +507,14 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
         return;
       }
 
+      let resetNote = "";
+      if (req.reset) {
+        const r = resetGuildMemory(guild.id);
+        resetNote = ` Deleted ${num(r.facts)} facts and ${num(r.profiles)} profiles.`;
+        console.log(`[Backfill] Reset guild ${guild.id}: ${r.facts} facts, ${r.profiles} profiles deleted, ${r.messages} messages marked for re-learning`);
+      }
       updateJob(id, { state: "running" });
-      await choice.update({ content: `${summary}\n\n**Confirmed.** Starting…`, components: stopButton(id) });
+      await choice.update({ content: `${summary}\n\n**Confirmed.**${resetNote} Starting…`, components: stopButton(id) });
       startRunning(getJob(id), dm);
     } catch (err) {
       running.delete(id);

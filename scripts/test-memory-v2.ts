@@ -16,6 +16,7 @@ import { ago, fmtDate, fmtDateTime, parseDateInput } from "../src/utils/LLM/v2/t
 import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfileRefreshOnce } from "../src/utils/LLM/v2/profiles";
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
 import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "../src/utils/LLM/v2/leakedTools";
+import { countGuildMemory, getFactSources, looksTemporal, resetGuildMemory } from "../src/utils/LLM/v2/facts";
 import { searchMessages } from "../src/utils/LLM/v2/messages";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
 
@@ -342,11 +343,11 @@ async function main() {
     const valid = validateCandidates(
       G,
       [
-        { ...base, source_ref: "m1", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 4070", classification: "self_report", evidence_quote: "I bought a 4070" },
-        { ...base, source_ref: "m1", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 5090", classification: "self_report", evidence_quote: "I bought a 5090" },
-        { ...base, source_ref: "m2", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 4090", classification: "self_report", evidence_quote: "Daniel owns a 4090" },
-        { ...base, source_ref: "m3", subject_user_id: DANIEL, predicate: "is", value: "toaster", classification: "joke", evidence_quote: "literally a toaster" },
-        { ...base, source_ref: "m1", subject_user_id: JASON, predicate: "owns_gpu", value: "x", classification: "third_party_claim", evidence_quote: "I bought a 4070" },
+        { ...base, source_ref: "m1", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 4070", category: "possession", classification: "self_report", evidence_quote: "I bought a 4070" },
+        { ...base, source_ref: "m1", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 5090", category: "possession", classification: "self_report", evidence_quote: "I bought a 5090" },
+        { ...base, source_ref: "m2", subject_user_id: DANIEL, predicate: "owns_gpu", value: "RTX 4090", category: "possession", classification: "self_report", evidence_quote: "Daniel owns a 4090" },
+        { ...base, source_ref: "m3", subject_user_id: DANIEL, predicate: "is", value: "toaster", category: "possession", classification: "joke", evidence_quote: "literally a toaster" },
+        { ...base, source_ref: "m1", subject_user_id: JASON, predicate: "owns_gpu", value: "x", category: "possession", classification: "third_party_claim", evidence_quote: "I bought a 4070" },
       ] as any,
       refs,
       batch,
@@ -371,7 +372,7 @@ async function main() {
     const m3 = say(JASON, "sergej is a dentist");
     const r = (msg: any) => getMessage(G, msg.id)!;
     const mk = (ref: string, value: string, cls: string, quote: string) =>
-      ({ source_ref: ref, subject_user_id: SERGEJ, predicate: "job", value, classification: cls, multi_valued: false, evidence_quote: quote, supersedes_fact_id: null } as any);
+      ({ source_ref: ref, subject_user_id: SERGEJ, predicate: "job", value, category: "work_or_school", classification: cls, multi_valued: false, evidence_quote: quote, supersedes_fact_id: null } as any);
     const refs = new Map([["a", r(m)], ["b", r(m2)], ["c", r(m3)]]);
     storeValidatedFacts(G, validateCandidates(G, [mk("a", "plumber", "self_report", "I work as a plumber")], refs, new Set(["a"]), new Map()));
     storeValidatedFacts(G, validateCandidates(G, [mk("b", "chef", "correction", "I'm a chef now")], refs, new Set(["b"]), new Map()));
@@ -398,7 +399,7 @@ async function main() {
       G,
       validateCandidates(
         G,
-        [{ source_ref: "x", subject_user_id: JASON, predicate: "has_pet", value: "three cats", classification: "self_report", multi_valued: true, evidence_quote: "three cats", supersedes_fact_id: null } as any],
+        [{ source_ref: "x", subject_user_id: JASON, predicate: "has_pet", value: "three cats", category: "possession", classification: "self_report", multi_valued: true, evidence_quote: "three cats", supersedes_fact_id: null } as any],
         refs,
         new Set(["x"]),
         new Map()
@@ -562,7 +563,7 @@ async function main() {
       ["b", cap(meme.id, "Photo of a desk with an RTX 5090 graphics card")],
     ]);
     const mk = (ref: string, who: string) =>
-      ({ source_ref: ref, subject_user_id: who, predicate: "owns_gpu", value: "RTX 5090", classification: "self_report", multi_valued: true, evidence_quote: "RTX 5090 graphics card", supersedes_fact_id: null } as any);
+      ({ source_ref: ref, subject_user_id: who, predicate: "owns_gpu", value: "RTX 5090", category: "possession", classification: "self_report", multi_valued: true, evidence_quote: "RTX 5090 graphics card", supersedes_fact_id: null } as any);
     const valid = validateCandidates(G, [mk("a", SERGEJ), mk("b", JASON)], refs, new Set(["a", "b"]), new Map());
     assert.deepStrictEqual(valid.map((v) => v.subject_user_id), [SERGEJ]);
   });
@@ -767,7 +768,7 @@ async function main() {
     return getMessage(TG, m.id)!;
   };
   const job = (msg: any, value: string, quote: string, cls = "self_report") =>
-    ({ source_ref: "x", subject_user_id: msg.authorId, predicate: "job", value, classification: cls, multi_valued: false, evidence_quote: quote, supersedes_fact_id: null } as any);
+    ({ source_ref: "x", subject_user_id: msg.authorId, predicate: "job", value, category: "work_or_school", classification: cls, multi_valued: false, evidence_quote: quote, supersedes_fact_id: null } as any);
   const storeOne = (msg: any, cand: any) =>
     storeValidatedFacts(TG, validateCandidates(TG, [cand], new Map([["x", msg]]), new Set(["x"]), new Map()));
 
@@ -891,6 +892,74 @@ async function main() {
     const legacy = '<｜tool▁call▁begin｜>function<｜tool▁sep｜>search_user_memory\n```json\n{"user":"serg","query":""}\n```<｜tool▁call▁end｜>';
     assert.deepStrictEqual(parseLeakedToolCalls(legacy), [{ name: "search_user_memory", args: { user: "serg", query: "" } }]);
     assert.ok(!hasLeakedToolMarkup("anon this is literally the first google result | cope"));
+  });
+
+  section("profile-only facts, sources, reset");
+  test("plans, temporal and uncategorized facts are rejected", () => {
+    clock = Date.now();
+    const m = fakeMessage(JASON, "I'm going to buy a 5090 next week, I main Yasuo and I'm hardstuck silver");
+    storeDiscordMessage(m, { ownBotId: BOT });
+    const msg = getMessage(G, m.id)!;
+    const base = { source_ref: "x", subject_user_id: JASON, classification: "self_report", multi_valued: true, supersedes_fact_id: null };
+    const valid = validateCandidates(
+      G,
+      [
+        { ...base, category: "possession", predicate: "plans_to_buy", value: "going to buy a 5090", evidence_quote: "I'm going to buy a 5090" },
+        { ...base, category: "game", predicate: "main", value: "Yasuo", evidence_quote: "I main Yasuo" },
+        { ...base, category: "skill_or_rank", predicate: "rank", value: "hardstuck silver", evidence_quote: "I'm hardstuck silver" },
+        { ...base, category: "random_trivia", predicate: "x", value: "silver", evidence_quote: "hardstuck silver" },
+      ] as any,
+      new Map([["x", msg]]),
+      new Set(["x"]),
+      new Map()
+    );
+    assert.deepStrictEqual(valid.map((v) => v.value), ["Yasuo", "hardstuck silver"]);
+    assert.ok(looksTemporal("moving to Berlin next month", ""));
+    assert.ok(looksTemporal("x", "thinking about quitting league"));
+    assert.ok(!looksTemporal("plays bass", "I play bass"));
+  });
+
+  test("every fact links to its source message", () => {
+    clock = Date.now();
+    const m = fakeMessage(JASON, "I literally never wear belts");
+    storeDiscordMessage(m, { ownBotId: BOT });
+    const msg = getMessage(G, m.id)!;
+    storeValidatedFacts(
+      G,
+      validateCandidates(
+        G,
+        [{ source_ref: "x", subject_user_id: JASON, classification: "self_report", category: "habit", predicate: "wears_belts", value: "never wears belts", multi_valued: false, evidence_quote: "never wear belts", supersedes_fact_id: null } as any],
+        new Map([["x", msg]]),
+        new Set(["x"]),
+        new Map()
+      )
+    );
+    const fact = getActiveFacts(G, [JASON]).find((f) => f.value === "never wears belts")!;
+    assert.deepStrictEqual(fact.sourceMessageIds, [m.id]);
+    assert.strictEqual(fact.category, "habit");
+    const src = getFactSources(G, fact.id);
+    assert.strictEqual(src.length, 1);
+    assert.strictEqual(src[0].quote, "never wear belts");
+    assert.strictEqual(src[0].link, `https://discord.com/channels/${G}/${CH}/${m.id}`);
+  });
+
+  test("reset wipes facts and profiles and marks messages for re-learning", () => {
+    const before = countGuildMemory(G);
+    assert.ok(before.facts > 0);
+    const r = resetGuildMemory(G);
+    assert.strictEqual(r.facts, before.facts);
+    assert.strictEqual(countGuildMemory(G).facts, 0);
+    assert.strictEqual(countGuildMemory(G).profiles, 0);
+    assert.ok(r.messages > 0);
+    // other guilds untouched
+    assert.ok(countGuildMemory(TG).facts > 0);
+  });
+
+  test("persona: no 'anon', one reply, proof tool", () => {
+    const sp = buildSystemPrompt({ botId: BOT, now: "now", timezone: "Europe/Berlin", webEnabled: true });
+    assert.ok(!/\banon\b/i.test(sp.replace('Never call anyone "anon"', "")), "anon only appears in the rule forbidding it");
+    assert.ok(sp.includes("exactly ONE Discord message"));
+    assert.ok(sp.includes("get_fact_source"));
   });
 
   await chain;

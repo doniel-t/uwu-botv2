@@ -37,7 +37,7 @@ function memoryBlock(facts: RankedFact[], names: Map<string, string>): string {
     const who = `${names.get(f.subjectUserId) ?? "unknown"} [user ${f.subjectUserId}]`;
     const reporters = f.reporters.filter((r) => r !== f.subjectUserId);
     const source = f.kind === "third_party_claim" && reporters.length ? ` (according to ${reporters.map((r) => names.get(r) ?? `user ${r}`).join(", ")})` : "";
-    return `- ${who}: ${f.predicate.replace(/_/g, " ")}: ${f.value}${source}`;
+    return `- [fact #${f.id}] ${who}: ${f.predicate.replace(/_/g, " ")}: ${f.value}${source}`;
   };
   const ammo = facts.filter((f) => f.ammo);
   const other = facts.filter((f) => !f.ammo);

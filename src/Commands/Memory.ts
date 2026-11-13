@@ -2,7 +2,7 @@ import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
 import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, subcommand } from "../utils/LLM/v2/compat";
 
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
-import { forgetAllAbout, forgetFact, getActiveFacts, getFact } from "../utils/LLM/v2/facts";
+import { forgetAllAbout, forgetFact, getActiveFacts, getFact, getFactSources } from "../utils/LLM/v2/facts";
 import { setUserLearning } from "../utils/LLM/v2/settings";
 import { deleteProfile, getProfile, markProfileDirty, regenerateProfile } from "../utils/LLM/v2/profiles";
 import { canManageGuild } from "../utils/LLM/v2/permissions";
@@ -27,6 +27,13 @@ class Memory extends NormalCommandClass {
         { name: "user", description: "Whose profile to show", required: false, type: ApplicationCommandOptionType.User },
         { name: "refresh", description: "Rewrite it now from the latest facts", required: false, type: ApplicationCommandOptionType.Boolean },
       ],
+    },
+    {
+      name: "source",
+      description: "Show the message(s) a fact was learned from",
+      required: false,
+      type: ApplicationCommandOptionType.Subcommand,
+      options: [{ name: "fact", description: "Fact id from /memory show", required: true, type: ApplicationCommandOptionType.Integer }],
     },
     {
       name: "forget",
@@ -112,6 +119,22 @@ class Memory extends NormalCommandClass {
           content: profile
             ? `**Profile of <@${user.id}>** \n${profile.profile}`.slice(0, 1990)
             : `No profile of <@${user.id}> yet. It's written once I've learned a few facts (or use \`refresh:true\`).`,
+          allowedMentions: { parse: [] },
+          ...ephemeral,
+        });
+        return;
+      }
+      case "source": {
+        const id = optInteger(interaction, "fact")!;
+        const fact = getFact(guildId, id);
+        if (!fact) {
+          interaction.reply({ content: `No fact #${id} here.`, ...ephemeral });
+          return;
+        }
+        const sources = getFactSources(guildId, id);
+        const lines = sources.map((src) => `> ${src.quote}\n${src.link ?? "(message no longer stored)"}`);
+        interaction.reply({
+          content: `**#${id}** ${fact.predicate.replace(/_/g, " ")}: ${fact.value}\n${lines.join("\n") || "No source message stored."}`.slice(0, 1990),
           allowedMentions: { parse: [] },
           ...ephemeral,
         });

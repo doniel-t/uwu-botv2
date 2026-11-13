@@ -233,15 +233,18 @@ export async function buildContext(trigger: Message, botId: string): Promise<Bui
     "</participants>",
     "",
     "<current_request>",
+    `You are writing ONE Discord reply to message ${refOf.get(self.messageId)} by ${label(self.authorId)}.`,
     `Requester: ${label(self.authorId)}`,
     `Target: ${targetLine}`,
     repliedTo
-      ? `The requester replied to ${refOf.get(repliedTo.messageId)} by ${repliedTo.isOwnBot ? "you" : label(repliedTo.authorId)}: "${renderContent(repliedTo).slice(0, 600)}"`
+      ? repliedTo.isOwnBot
+        ? `Their message is a Discord reply to YOUR earlier message ${refOf.get(repliedTo.messageId)}: "${renderContent(repliedTo).slice(0, 600)}". They are reacting to what you said there; answer them, don't continue your old message.`
+        : `Their message is a Discord reply to ${refOf.get(repliedTo.messageId)} by ${label(repliedTo.authorId)}: "${renderContent(repliedTo).slice(0, 600)}"`
       : null,
     ambiguousRefs.length
       ? `Ambiguous names in the request: ${ambiguousRefs.map((r) => `"${r.text}" could be ${r.userIds.map(label).join(" or ")}`).join("; ")}. If it matters, ask which one.`
       : null,
-    `Instruction (${refOf.get(self.messageId)}): ${renderContent(self)}`,
+    `Their message (${refOf.get(self.messageId)}): ${renderContent(self)}`,
     "</current_request>",
   ]
     .filter((l) => l !== null)

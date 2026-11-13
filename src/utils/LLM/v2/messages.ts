@@ -317,12 +317,18 @@ export function channelsWithPendingExtraction(guildId: string, sinceMs: number):
 }
 
 /** Stats for a backfill estimate: unprocessed messages in [since, until] for some channels. */
-export function getUnextractedRange(guildId: string, channelIds: string[], since: number, until: number): StoredMessage[] {
+export function getUnextractedRange(
+  guildId: string,
+  channelIds: string[],
+  since: number,
+  until: number,
+  includeExtracted = false
+): StoredMessage[] {
   if (channelIds.length === 0) return [];
   const ph = channelIds.map(() => "?").join(",");
   const rows = getV2DB()
     .prepare(
-      `SELECT * FROM messages WHERE guild_id = ? AND channel_id IN (${ph}) AND extracted = 0 AND deleted_at IS NULL
+      `SELECT * FROM messages WHERE guild_id = ? AND channel_id IN (${ph}) AND ${includeExtracted ? "is_own_bot = 0" : "extracted = 0"} AND deleted_at IS NULL
          AND created_at >= ? AND created_at <= ? ORDER BY channel_id, created_at`
     )
     .all(guildId, ...channelIds, since, until) as Row[];
