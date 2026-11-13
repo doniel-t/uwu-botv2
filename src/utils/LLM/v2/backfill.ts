@@ -14,8 +14,9 @@ import {
 } from "discord.js";
 import { computeCost } from "../utils/api/openrouter";
 import { getV2DB } from "./db";
-import { countGuildMemory, EXTRACTION_BATCH_SIZE, isWorthExtracting, resetGuildMemory, runExtractionBatch } from "./facts";
-import { getMessage, getMessagesBefore, getUnextractedRange, StoredMessage, storeDiscordMessage } from "./messages";
+import { countGuildMemory, EXTRACTION_BATCH_SIZE, isExtractable, resetGuildMemory, runExtractionBatch } from "./facts";
+import { getMessage, getUnextractedRange, refreshStoredImages, StoredMessage, storeDiscordMessage } from "./messages";
+import { buildExtractionContext, chunkByConversation } from "./extractionContext";
 import { getAISettings, MODELS } from "./settings";
 import { captionQueueSize, queueCaptionsFor } from "./vision";
 
@@ -42,7 +43,9 @@ const CHARS_PER_TOKEN = 3.5;
 const OUTPUT_TOKENS_PER_CALL = 150;
 const CAPTION_INPUT_TOKENS = 1_300;
 const CAPTION_OUTPUT_TOKENS = 120;
-const SECONDS_PER_CALL = 2.5;
+const SECONDS_PER_CALL = 3;
+/** Average context lines per batch (conversation, replied-to messages, reactions). */
+const CONTEXT_LINES_ESTIMATE = 20;
 
 type JobState = "scanning" | "awaiting_confirm" | "running" | "done" | "cancelled" | "expired" | "failed";
 
@@ -157,7 +160,7 @@ async function listChannels(guild: Guild, since: number, onlyId?: string): Promi
   return [...out.values()];
 }
 
-type ScanResult = { channels: number; scanned: number; stored: number };
+type ScanResult = { channels: number; scanned: number; stored: number; imagesRefreshed: number };
 
 async function scanHistory(
   guild: Guild,
@@ -169,6 +172,7 @@ async function scanHistory(
   const channels = await listChannels(guild, job.since, onlyId);
   let scanned = 0;
   let stored = 0;
+  let imagesRefreshed = 0;
 
   for (const [i, ch] of channels.entries()) {
     let before: string | undefined;
@@ -187,7 +191,12 @@ async function scanHistory(
         if (m.createdTimestamp > job.until) continue;
         scanned++;
         if (m.system || (m.author.bot && m.author.id !== botId)) continue;
-        if (getMessage(guild.id, m.id)) continue;
+        if (getMessage(guild.id, m.id)) {
+          // Already stored (live, earlier backfill without images, or before image support):
+          // with images:true, pick up its images now.
+          if (job.include_images === 1) imagesRefreshed += refreshStoredImages(m);
+          continue;
+        }
         storeDiscordMessage(m, { ownBotId: botId, skipImages: job.include_images !== 1 });
         stored++;
       }
@@ -196,7 +205,7 @@ async function scanHistory(
       before = oldestId;
     }
   }
-  return { channels: channels.length, scanned, stored, channelIds: channels.map((c) => c.id) };
+  return { channels: channels.length, scanned, stored, imagesRefreshed, channelIds: channels.map((c) => c.id) };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,18 +239,18 @@ export function estimateBackfill(
   let inputTokens = 0;
   let toAnalyze = 0;
   for (const list of byChannel.values()) {
-    for (let i = 0; i < list.length; i += EXTRACTION_BATCH_SIZE) {
-      const batch = list.slice(i, i + EXTRACTION_BATCH_SIZE);
-      const worthy = batch.filter((m) => !m.isOwnBot && isWorthExtracting(m.content)).length;
+    for (const batch of chunkByConversation(list, EXTRACTION_BATCH_SIZE)) {
+      const worthy = batch.filter((m) => isExtractable(m)).length;
       if (worthy === 0) continue;
       toAnalyze += worthy;
       calls++;
-      const lines = batch.length + 8;
+      const lines = batch.length + CONTEXT_LINES_ESTIMATE;
       const chars = batch.reduce((s, m) => s + m.content.length, 0) * (lines / batch.length);
       inputTokens += PROMPT_OVERHEAD_TOKENS + lines * TOKENS_PER_LINE + chars / CHARS_PER_TOKEN;
     }
   }
-  const images = includeImages ? rows.reduce((s, m) => s + m.images.filter((i) => i.state === "pending").length, 0) : 0;
+  const imageRows = includeImages ? getUnextractedRange(guildId, channelIds, since, until, true) : [];
+  const images = imageRows.reduce((sum, m) => sum + m.images.filter((i) => i.state === "pending").length, 0);
 
   const extractCost = computeCost(MODELS.extract, inputTokens, calls * OUTPUT_TOKENS_PER_CALL);
   const captionCost = images > 0 ? computeCost(MODELS.vision, images * CAPTION_INPUT_TOKENS, images * CAPTION_OUTPUT_TOKENS) : 0;
@@ -286,7 +295,7 @@ async function runBackfill(job: JobRow, report: (text: string, final?: boolean) 
   try {
     // 1. Captions first, so facts can use them.
     if (job.include_images === 1) {
-      const rows = getUnextractedRange(job.guild_id, channelIds, job.since, job.until);
+      const rows = getUnextractedRange(job.guild_id, channelIds, job.since, job.until, true);
       let queued = 0;
       for (const m of rows) if (queueCaptionsFor(job.guild_id, m.messageId)) queued++;
       while (captionQueueSize() > 0) {
@@ -304,25 +313,31 @@ async function runBackfill(job: JobRow, report: (text: string, final?: boolean) 
 
     const worker = async () => {
       for (let list = queue.shift(); list; list = queue.shift()) {
-        for (let i = 0; i < list.length; i += EXTRACTION_BATCH_SIZE) {
+        for (const batch of chunkByConversation(list, EXTRACTION_BATCH_SIZE)) {
           if (state.stop) return;
           if (budget != null && spent > budget) {
             state.stop = true;
             throw new Error(`stopped: spent ${money(spent)}, more than ${OVERSPEND_FACTOR}x the estimate`);
           }
-          const batch = list.slice(i, i + EXTRACTION_BATCH_SIZE);
-          const ctx = getMessagesBefore(job.guild_id, batch[0].channelId, batch[0].createdAt, 8);
+          const ctx = buildExtractionContext(job.guild_id, batch[0].channelId, batch);
           let stats = { stored: 0, cost: 0, calls: 0 };
           for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-              stats = await runExtractionBatch({ guildId: job.guild_id, context: ctx, batch, backfill: true });
+              stats = await runExtractionBatch({
+                guildId: job.guild_id,
+                context: ctx.before,
+                parents: ctx.parents,
+                after: ctx.after,
+                batch,
+                backfill: true,
+              });
               break;
             } catch (err) {
               if (attempt === 3) console.error("[MemoryV2] Backfill batch failed, skipping:", (err as Error).message);
               else await new Promise((r) => setTimeout(r, 2_000 * attempt));
             }
           }
-          processed += batch.filter((m) => !m.isOwnBot && isWorthExtracting(m.content)).length;
+          processed += batch.filter((m) => isExtractable(m)).length;
           facts += stats.stored;
           spent += stats.cost;
           await progress("Learning facts…");

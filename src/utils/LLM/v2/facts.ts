@@ -11,9 +11,10 @@ import {
 import { getAISettings, isLearningActive, MODELS, userAllowsLearning } from "./settings";
 import { contentWords, normalizeWord } from "./text";
 import { renderImages } from "./vision";
+import { buildExtractionContext, chunkByConversation } from "./extractionContext";
 import { createOpenRouter, computeCost, logAPICall } from "../utils/api/openrouter";
 
-export const EXTRACTOR_VERSION = "v2.2";
+export const EXTRACTOR_VERSION = "v2.3";
 
 export type FactKind = "self_report" | "third_party_claim" | "temporary_state" | "curated_seed";
 
@@ -56,11 +57,10 @@ type FactRow = {
 };
 
 const DAY = 24 * 60 * 60 * 1000;
-const TEMP_STATE_TTL = 3 * DAY;
-const HEARSAY_TTL = 90 * DAY;
 
 const FACT_SELECT = `
-  SELECT f.*, COUNT(e.message_id) AS evidence_count, GROUP_CONCAT(DISTINCT e.reporter_user_id) AS reporters,
+  SELECT f.*, COUNT(CASE WHEN e.evidence_type != 'context' THEN 1 END) AS evidence_count,
+    GROUP_CONCAT(DISTINCT CASE WHEN e.evidence_type != 'context' THEN e.reporter_user_id END) AS reporters,
     GROUP_CONCAT(DISTINCT e.message_id) AS message_ids
   FROM facts f LEFT JOIN fact_evidence e ON e.fact_id = f.id`;
 
@@ -195,7 +195,9 @@ export function onEvidenceChanged(guildId: string, messageId: string): void {
     ).map((r) => r.fact_id);
     db.prepare("DELETE FROM fact_evidence WHERE guild_id = ? AND message_id = ?").run(guildId, messageId);
     for (const id of factIds) {
-      const left = (db.prepare("SELECT COUNT(*) AS c FROM fact_evidence WHERE fact_id = ?").get(id) as { c: number }).c;
+      const left = (
+        db.prepare("SELECT COUNT(*) AS c FROM fact_evidence WHERE fact_id = ? AND evidence_type != 'context'").get(id) as { c: number }
+      ).c;
       if (left === 0) db.prepare("UPDATE facts SET status = 'retracted' WHERE id = ? AND source_kind = 'extracted'").run(id);
     }
   })();
@@ -344,6 +346,9 @@ type Candidate = {
   value: string;
   classification: "self_report" | "third_party_claim" | "joke" | "temporary_state" | "correction";
   category: string;
+  confidence: "high" | "medium" | "low";
+  /** ref of a message that gives the source its meaning (what it replies to / agrees with), or null */
+  context_ref: string | null;
   multi_valued: boolean;
   evidence_quote: string;
   supersedes_fact_id: number | null;
@@ -393,6 +398,8 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
           "value",
           "classification",
           "category",
+          "confidence",
+          "context_ref",
           "multi_valued",
           "evidence_quote",
           "supersedes_fact_id",
@@ -407,6 +414,15 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
             enum: ["self_report", "third_party_claim", "joke", "temporary_state", "correction"],
           },
           category: { type: "string", enum: FACT_CATEGORIES as unknown as string[] },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+            description: "high only if you'd bet it is true, lasting and about this person; only high facts are kept",
+          },
+          context_ref: {
+            type: ["string", "null"],
+            description: "ref of the message that gives the source its meaning (the message it replies to or agrees with), else null",
+          },
           multi_valued: { type: "boolean", description: "true if a person can have several values (likes, owns)" },
           evidence_quote: { type: "string", description: "exact substring of the source message" },
           supersedes_fact_id: { type: ["integer", "null"], description: "id of a known fact this replaces, or null" },
@@ -437,6 +453,13 @@ Only extract facts that describe the person in a lasting way, in one of these ca
 - relationship: relationships within the group (best friends, rivals, roommates)
 - reputation: what the group consistently says or jokes about them
 
+How to read the log:
+- Lines are in chat order with the time of day. [CONTEXT] = earlier messages of the same conversation. [REPLIED] = older messages that someone in the batch replied to. [EXTRACT] = the messages you extract from. [AFTER] = how people reacted right after.
+- "(reply to m4 by Name)" means that line is a Discord reply to m4. Read every [EXTRACT] message in its conversation: which question it answers, what it agrees or disagrees with, who it is aimed at.
+- A short reply can carry a fact through what it replies to: B "I sleep at 4am every day" -> A replies "same" means A sleeps very late. Then quote the [EXTRACT] message and set context_ref to the message that gives it meaning.
+- Use the reactions around a message: if people laugh, mock it or it's obvious bait, it is a joke, not a fact.
+- confidence: "high" only when you would bet that the fact is true, lasting and about this person. Only high-confidence facts are kept, so don't inflate.
+
 The bar is high: would this still be true and worth knowing about them in a month? If not, skip it.
 NEVER extract:
 - plans, intentions, wishes, considerations ("going to", "want to", "thinking about", "might", "planning")
@@ -454,7 +477,10 @@ classification:
 
 - Quoting someone else ("Bob said 'I bought a 4090'") is NOT a self-report by the author.
 - Reuse predicates from the known facts list when the meaning matches.
-- "[image: ...]" is an automatic description of an image the author posted. Only extract a fact from an image when the author's own text says it is theirs or about them ("my new setup", "finally hit diamond"); then the quote may come from the description. Memes and random pictures say nothing about the poster.
+- "[image: Shows: ... | Used as: ...]" is an automatic description of an image the author posted and its role in the chat.
+  Reaction images and memes ("Used as: reaction to ...") show how someone reacts; they are never facts about the poster, but they help you read the conversation (who is mocked, what is agreed with).
+  Only extract a fact from an image when it is the author's own photo/screenshot AND their text claims it ("my new setup", "finally hit diamond"); then the quote may come from the description.
+  A text message that replies to an image is a comment on that image: read it together with the image description.
 - Most batches contain zero facts, and that is fine. Return {"facts": []} when nothing clears the bar.`;
 
 function normalizeQuote(s: string): string {
@@ -469,8 +495,13 @@ const FIRST_PERSON = /(^|[^\p{L}])(i|i'm|im|my|mine|me|ich|mein|meine|meinen|mei
 
 export type ExtractionBatch = {
   guildId: string;
+  /** earlier messages of the same conversation */
   context: StoredMessage[];
   batch: StoredMessage[];
+  /** older messages that batch messages replied to */
+  parents?: StoredMessage[];
+  /** reactions right after the batch */
+  after?: StoredMessage[];
   /** backfill jobs run even while the guild still uses the legacy engine */
   backfill?: boolean;
 };
@@ -483,13 +514,15 @@ export function validateCandidates(
   refToMessage: Map<string, StoredMessage>,
   batchRefs: Set<string>,
   knownFacts: Map<number, Fact>
-): (Candidate & { message: StoredMessage; kind: FactKind })[] {
-  const out: (Candidate & { message: StoredMessage; kind: FactKind })[] = [];
+): (Candidate & { message: StoredMessage; kind: FactKind; contextMessage?: StoredMessage })[] {
+  const out: (Candidate & { message: StoredMessage; kind: FactKind; contextMessage?: StoredMessage })[] = [];
   for (const c of candidates) {
     if (!batchRefs.has(c.source_ref)) continue;
     const message = refToMessage.get(c.source_ref);
     if (!message || message.isOwnBot) continue;
     if (c.classification === "joke") continue;
+    // Only facts the extractor would bet on. (Missing field = older test data/models: treat as high.)
+    if (c.confidence && c.confidence !== "high") continue;
     // No temporary or time-bound facts at all, only profile categories.
     if (c.classification === "temporary_state") continue;
     if (!(FACT_CATEGORIES as readonly string[]).includes(c.category)) continue;
@@ -533,7 +566,10 @@ export function validateCandidates(
       if (!old || old.subjectUserId !== c.subject_user_id || kind !== "self_report") supersedes = null;
     }
 
-    out.push({ ...c, predicate, value, supersedes_fact_id: supersedes, message, kind });
+    const ctxMsg = c.context_ref ? refToMessage.get(c.context_ref) : undefined;
+    const contextMessage = ctxMsg && ctxMsg.messageId !== message.messageId && !ctxMsg.isOwnBot ? ctxMsg : undefined;
+
+    out.push({ ...c, predicate, value, supersedes_fact_id: supersedes, message, kind, contextMessage });
   }
   return out;
 }
@@ -637,14 +673,21 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
         `INSERT OR IGNORE INTO fact_evidence (fact_id, guild_id, message_id, message_revision, reporter_user_id, evidence_quote, evidence_type)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(factId, guildId, f.message.messageId, f.message.revision, f.message.authorId, f.evidence_quote.slice(0, 300), f.kind);
+      if (f.contextMessage) {
+        db.prepare(
+          `INSERT OR IGNORE INTO fact_evidence (fact_id, guild_id, message_id, message_revision, reporter_user_id, evidence_quote, evidence_type)
+           VALUES (?, ?, ?, ?, ?, ?, 'context')`
+        ).run(factId, guildId, f.contextMessage.messageId, f.contextMessage.revision, f.contextMessage.authorId, f.contextMessage.content.slice(0, 300));
+      }
       touchedSubjects.add(`${guildId}:${f.subject_user_id}`);
     }
   })();
   return stored;
 }
 
-function ttlFor(kind: FactKind): number {
-  return kind === "temporary_state" ? TEMP_STATE_TTL : kind === "third_party_claim" ? HEARSAY_TTL : 0;
+/** Facts never expire. They only end when replaced by a newer statement, forgotten, or their source is deleted. */
+function ttlFor(_kind: FactKind): number {
+  return 0;
 }
 
 /** guild:user pairs whose facts changed since the last drain (drives profile refreshes). */
@@ -662,7 +705,7 @@ export function drainTouchedSubjects(): { guildId: string; userId: string }[] {
  * Cheap pre-filter so "lol", emoji spam and bare links never cost an extractor
  * call. Such messages are still passed along as context.
  */
-export function isWorthExtracting(content: string): boolean {
+export function isWorthExtracting(content: string, isReply = false): boolean {
   const text = content
     .replace(/<a?:\w+:\d+>/g, " ")
     .replace(/<[@#][!&]?\d+>/g, " ")
@@ -670,33 +713,75 @@ export function isWorthExtracting(content: string): boolean {
     .replace(/\[(attachment|sticker): [^\]]*\]/g, " ")
     .trim();
   const words = text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  const joined = words.join("").toLowerCase();
+  // Laughter and reactions never carry a fact.
+  if (/^(l+o+l+|lmf?a+o+|xd+|(ha)+h?|(he)+h?|kek|bruh|gg|wtf|omg|rip|f|lul|kekw|w|l|💀)$/i.test(joined)) return false;
+  // Short replies ("same", "me too", "yes" to a question) get their meaning from what they reply to.
+  if (isReply) return words.length >= 1 && text.length >= 2;
   if (words.length < 2 || text.length < 6) return false;
-  if (/^(l+o+l+|lmao+|xd+|haha+|ok+|okay|yes|no|nah|yeah|bruh|gg|wtf|kek)$/i.test(words.join(""))) return false;
+  if (/^(ok+|okay|yes|no|nah|yeah)$/i.test(joined)) return false;
   return true;
 }
 
-function renderForExtractor(m: StoredMessage, ref: string, tag: "EXTRACT" | "CONTEXT", refOf: Map<string, string>): string {
+/** Whether a stored message is worth sending to the extractor at all. */
+export function isExtractable(m: StoredMessage): boolean {
+  return !m.isOwnBot && isWorthExtracting(m.content, !!m.replyToMessageId);
+}
+
+type ExtractorTag = "EXTRACT" | "CONTEXT" | "REPLIED" | "AFTER";
+
+const timeOfDay = (ms: number) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: process.env.BOT_TIMEZONE || "Europe/Berlin", hour: "2-digit", minute: "2-digit", hour12: false }).format(
+    new Date(ms)
+  );
+
+function renderForExtractor(
+  m: StoredMessage,
+  ref: string,
+  tag: ExtractorTag,
+  refOf: Map<string, string>,
+  byId: Map<string, StoredMessage>
+): string {
   let text = m.content;
   for (const r of [...m.nameRefs].filter((r) => r.confidence === "high" && r.userId).sort((a, b) => b.start - a.start)) {
     text = text.slice(0, r.end) + ` [= user ${r.userId}]` + text.slice(r.end);
   }
   text = text.replace(/<@!?(\d+)>/g, "@[user $1]");
   if (m.images.length) text = `${text} ${renderImages(m.images)}`.trim();
-  const reply = m.replyToMessageId ? ` (reply to ${refOf.get(m.replyToMessageId) ?? "older message"})` : "";
+  let reply = "";
+  if (m.replyToMessageId) {
+    const parent = byId.get(m.replyToMessageId);
+    reply = parent
+      ? ` (reply to ${refOf.get(parent.messageId)} by ${parent.isOwnBot ? "BOT" : `${parent.authorName} [user ${parent.authorId}]`})`
+      : " (reply to a message that isn't available)";
+  }
   const who = m.isOwnBot ? "BOT" : `${m.authorName} [user ${m.authorId}]`;
-  return `[${tag}] ${ref} ${who}${reply}: ${text}`;
+  return `[${tag}] ${ref} ${timeOfDay(m.createdAt)} ${who}${reply}: ${text}`;
+}
+
+let extractorModelForTests: ((prompt: string) => Promise<{ facts?: Candidate[] }>) | null = null;
+
+/** Test hook: see the exact prompt and return canned output instead of calling the model. */
+export function _setExtractorModelForTests(fn?: (prompt: string) => Promise<{ facts?: any[] }>): void {
+  extractorModelForTests = (fn as any) ?? null;
 }
 
 async function extractBatch(job: ExtractionBatch): Promise<ExtractionStats> {
-  const { guildId, context, batch } = job;
+  const { guildId, batch } = job;
+  // Everything before the batch, in chat order: replied-to messages and the conversation so far.
+  const context = [...(job.parents ?? []), ...job.context].sort((a, b) => a.createdAt - b.createdAt);
+  const parentIds = new Set((job.parents ?? []).map((m) => m.messageId));
+  const after = job.after ?? [];
   const refOf = new Map<string, string>();
   const refToMessage = new Map<string, StoredMessage>();
-  [...context, ...batch].forEach((m, i) => {
+  const byId = new Map<string, StoredMessage>();
+  [...context, ...batch, ...after].forEach((m, i) => {
     refOf.set(m.messageId, `m${i + 1}`);
     refToMessage.set(`m${i + 1}`, m);
+    byId.set(m.messageId, m);
   });
   const evidenceIds = batch
-    .filter((m) => !m.isOwnBot && isWorthExtracting(m.content) && userAllowsLearning(guildId, m.authorId))
+    .filter((m) => isExtractable(m) && userAllowsLearning(guildId, m.authorId))
     .map((m) => m.messageId);
   const batchRefs = new Set(evidenceIds.map((id) => refOf.get(id)!));
   const done = batch.map((m) => ({ messageId: m.messageId, revision: m.revision }));
@@ -707,7 +792,7 @@ async function extractBatch(job: ExtractionBatch): Promise<ExtractionStats> {
   }
 
   const subjects = new Set<string>();
-  for (const m of [...context, ...batch]) {
+  for (const m of [...context, ...batch, ...after]) {
     subjects.add(m.authorId);
     m.mentionedUserIds.forEach((id) => subjects.add(id));
     m.nameRefs.forEach((r) => r.userId && subjects.add(r.userId));
@@ -716,26 +801,35 @@ async function extractBatch(job: ExtractionBatch): Promise<ExtractionStats> {
   const knownById = new Map(known.map((f) => [f.id, f]));
 
   const log = [
-    ...context.map((m) => renderForExtractor(m, refOf.get(m.messageId)!, "CONTEXT", refOf)),
+    ...context.map((m) => renderForExtractor(m, refOf.get(m.messageId)!, parentIds.has(m.messageId) ? "REPLIED" : "CONTEXT", refOf, byId)),
     ...batch.map((m) =>
-      renderForExtractor(m, refOf.get(m.messageId)!, batchRefs.has(refOf.get(m.messageId)!) ? "EXTRACT" : "CONTEXT", refOf)
+      renderForExtractor(m, refOf.get(m.messageId)!, batchRefs.has(refOf.get(m.messageId)!) ? "EXTRACT" : "CONTEXT", refOf, byId)
     ),
+    ...after.map((m) => renderForExtractor(m, refOf.get(m.messageId)!, "AFTER", refOf, byId)),
   ].join("\n");
   const knownText = known.length
     ? known.map((f) => `#${f.id} user ${f.subjectUserId}: ${f.predicate} = ${f.value} (${f.kind})`).join("\n")
     : "(none)";
 
   const start = Date.now();
-  const result = await generateText({
-    model: createOpenRouter().chat(MODELS.extract),
-    system: EXTRACTOR_SYSTEM,
-    prompt: `<known_facts>\n${knownText}\n</known_facts>\n\n<chat_log>\n${log}\n</chat_log>`,
-    output: Output.object({ schema: candidateSchema }),
-    maxRetries: 1,
-    timeout: 60_000,
-  });
+  const prompt = `<known_facts>\n${knownText}\n</known_facts>\n\n<chat_log>\n${log}\n</chat_log>`;
+  let output: { facts?: Candidate[] } | undefined;
+  let usage = { inputTokens: 0, outputTokens: 0 } as { inputTokens?: number; outputTokens?: number };
+  if (extractorModelForTests) {
+    output = await extractorModelForTests(prompt);
+  } else {
+    const result = await generateText({
+      model: createOpenRouter().chat(MODELS.extract),
+      system: EXTRACTOR_SYSTEM,
+      prompt,
+      output: Output.object({ schema: candidateSchema }),
+      maxRetries: 1,
+      timeout: 60_000,
+    });
+    output = (result as any).output as { facts?: Candidate[] } | undefined;
+    usage = result.totalUsage;
+  }
 
-  const output = (result as any).output as { facts?: Candidate[] } | undefined;
   const candidates = (output?.facts ?? []) as Candidate[];
   const valid = validateCandidates(guildId, candidates, refToMessage, batchRefs, knownById);
   // Learning may have been switched off while the model was running.
@@ -743,7 +837,6 @@ async function extractBatch(job: ExtractionBatch): Promise<ExtractionStats> {
   const stored = allowed ? storeValidatedFacts(guildId, valid) : 0;
   markExtracted(guildId, done);
 
-  const usage = result.totalUsage;
   const cost = computeCost(MODELS.extract, usage.inputTokens || 0, usage.outputTokens || 0);
   logAPICall({
     type: "MemoryV2.extract",
@@ -783,14 +876,11 @@ async function extractChannel(guildId: string, channelId: string): Promise<void>
   // Stop at the first such message to keep order; captioning re-triggers extraction.
   const waitIdx = pending.findIndex((m) => m.images.some((i) => i.state === "pending") && Date.now() - m.createdAt < CAPTION_WAIT_MS);
   if (waitIdx >= 0) pending = pending.slice(0, waitIdx);
-  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
-    const batch = pending.slice(i, i + BATCH_SIZE);
-    const ctx = getMessagesBefore(guildId, channelId, batch[0].createdAt, 8).filter(
-      (m) => m.createdAt >= batch[0].createdAt - 30 * 60 * 1000
-    );
+  for (const batch of chunkByConversation(pending, BATCH_SIZE)) {
+    const ctx = buildExtractionContext(guildId, channelId, batch);
     const key = batch[0].messageId;
     try {
-      await runBatch({ guildId, context: ctx, batch });
+      await runBatch({ guildId, context: ctx.before, parents: ctx.parents, after: ctx.after, batch });
       failures.delete(key);
     } catch (err) {
       const attempts = (failures.get(key) ?? 0) + 1;

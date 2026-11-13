@@ -182,6 +182,27 @@ export function mergeImages(message: Message): boolean {
   return merged.some((i) => i.state === "pending");
 }
 
+/**
+ * Backfill with images:true on a message that is already stored: take the image
+ * list from the freshly fetched message (fresh CDN links, images that were
+ * skipped or never recorded) and keep descriptions that already exist.
+ * Returns how many images are now waiting for a description.
+ */
+export function refreshStoredImages(message: Message): number {
+  if (!message.guild) return 0;
+  const stored = getMessage(message.guild.id, message.id);
+  if (!stored || stored.isOwnBot) return 0;
+  const fresh = imagesOf(message);
+  if (fresh.length === 0) return 0;
+  const base = (url: string) => url.split("?")[0];
+  const merged = fresh.map((img) => {
+    const old = stored.images.find((o) => base(o.url) === base(img.url));
+    return old && old.state === "done" && old.caption ? { ...img, caption: old.caption, state: "done" as const } : img;
+  });
+  if (JSON.stringify(merged) !== JSON.stringify(stored.images)) setMessageImages(message.guild.id, message.id, merged);
+  return merged.filter((i) => i.state === "pending").length;
+}
+
 export function setMessageImages(guildId: string, messageId: string, images: ImageInfo[]): void {
   getV2DB()
     .prepare("UPDATE messages SET images = ? WHERE guild_id = ? AND message_id = ?")
@@ -266,6 +287,17 @@ export function storedRange(guildId: string): { first: number | null; last: numb
     .prepare("SELECT MIN(created_at) AS first, MAX(created_at) AS last FROM messages WHERE guild_id = ?")
     .get(guildId) as { first: number | null; last: number | null };
   return r;
+}
+
+/** The `limit` messages right after a timestamp in a channel, oldest first. */
+export function getMessagesAfter(guildId: string, channelId: string, afterMs: number, limit: number): StoredMessage[] {
+  const rows = getV2DB()
+    .prepare(
+      `SELECT * FROM messages WHERE guild_id = ? AND channel_id = ? AND deleted_at IS NULL AND created_at > ?
+       ORDER BY created_at ASC LIMIT ?`
+    )
+    .all(guildId, channelId, afterMs, limit) as Row[];
+  return rows.map(fromRow);
 }
 
 export function getMessagesAround(guildId: string, channelId: string, messageId: string, limit: number): StoredMessage[] {

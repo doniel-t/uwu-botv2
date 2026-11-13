@@ -205,6 +205,16 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE backfill_jobs ADD COLUMN reset INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    // Longer profiles: rewrite them.
+    version: 8,
+    sql: `UPDATE user_profiles SET dirty = 1, dirty_since = 0, updated_at = 0 WHERE profile IS NOT NULL;`,
+  },
+  {
+    // Facts live forever: drop existing expiry dates (hearsay used to expire after 90 days).
+    version: 9,
+    sql: `UPDATE facts SET expires_at = NULL WHERE kind != 'temporary_state';`,
+  },
 ];
 
 export function getV2DB(): Database.Database {

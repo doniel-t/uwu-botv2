@@ -55,7 +55,7 @@ function memoryBlock(facts: RankedFact[], names: Map<string, string>): string {
 
 const MAX_PROFILES = 2;
 /** Profiles are background on who someone is, not a list of material to recite. */
-const PROFILE_PROMPT_CHARS = 500;
+const PROFILE_PROMPT_CHARS = 1400;
 
 function profilesBlock(guildId: string, userIds: string[], names: Map<string, string>): string {
   const lines: string[] = [];

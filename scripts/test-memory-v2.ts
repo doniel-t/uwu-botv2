@@ -17,6 +17,10 @@ import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfile
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
 import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "../src/utils/LLM/v2/leakedTools";
 import { buildTools } from "../src/utils/LLM/v2/tools";
+import { buildProfilePrompt } from "../src/utils/LLM/v2/profiles";
+import { refreshStoredImages, setMessageImages } from "../src/utils/LLM/v2/messages";
+import { buildExtractionContext, chunkByConversation } from "../src/utils/LLM/v2/extractionContext";
+import { _setExtractorModelForTests, runExtractionBatch } from "../src/utils/LLM/v2/facts";
 import { countGuildMemory, getFactSources, looksTemporal, resetGuildMemory } from "../src/utils/LLM/v2/facts";
 import { searchMessages } from "../src/utils/LLM/v2/messages";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
@@ -412,6 +416,13 @@ async function main() {
   });
 
   section("immediate extraction");
+  test("short replies are analysed, laughter never", () => {
+    assert.ok(isWorthExtracting("same", true));
+    assert.ok(isWorthExtracting("yes", true));
+    assert.ok(!isWorthExtracting("same", false));
+    assert.ok(!isWorthExtracting("lmaooo", true));
+    assert.ok(!isWorthExtracting("💀", true));
+  });
   test("pre-filter skips noise, keeps short facts", () => {
     for (const t of ["lol", "lmao", "xD", "ok", "https://x.com/a/b", "<:kek:123456789012345678>", `<@${DANIEL}> gg`]) {
       assert.ok(!isWorthExtracting(t), t);
@@ -700,9 +711,9 @@ async function main() {
     assert.ok(estimate.includes("scanned 5 messages (4 new)"), estimate); // 400-day-old message excluded, other bot skipped
     assert.ok(estimate.includes("To analyze: **3 messages**"), estimate); // "lol" filtered out
     const final = fx.dmEdits[fx.dmEdits.length - 1];
-    assert.ok(final.startsWith("**Backfill done**") && final.includes("learned 2 facts"), final);
-    assert.strictEqual(calls.length, 1);
-    assert.deepStrictEqual(calls[0], ["I play bass in a band", "I switched jobs, I'm a nurse now", "lol", "I just adopted a dog named Bruno"]);
+    // Messages days apart are separate conversations -> one batch each, oldest first.
+    assert.ok(final.startsWith("**Backfill done**") && final.includes("learned 8 facts"), final);
+    assert.deepStrictEqual(calls, [["I play bass in a band"], ["I switched jobs, I'm a nurse now"], ["lol"], ["I just adopted a dog named Bruno"]]);
     assert.ok(!getMessage(BF_GUILD, fx.history[5].id), "message before the start date is not stored");
     assert.ok(!getMessage(BF_GUILD, fx.history[2].id), "other bots are skipped");
     assert.ok(activeJobFor(BF_GUILD) === undefined);
@@ -978,6 +989,188 @@ async function main() {
     assert.ok(results.slice(0, 10).every((r) => !/limit/.test(r.error ?? "")), "first 10 calls run");
     assert.ok(/limit/.test(results[10].error), JSON.stringify(results[10]));
     assert.strictEqual(trace.used.length, 11);
+  });
+
+  section("conversation-aware extraction");
+  const XG = "665991423933547200";
+  const XCH = "710000000000000777";
+  const M = 60_000;
+  const post = (authorId: string, content: string, at: number, replyTo?: string) => {
+    clock = at - 1000;
+    const m: any = fakeMessage(authorId, content, replyTo ? { replyTo } : {});
+    m.guild = { ...guild, id: XG };
+    m.guildId = XG;
+    m.channel = { ...channel, id: XCH };
+    storeDiscordMessage(m, { ownBotId: BOT });
+    return getMessage(XG, m.id)!;
+  };
+  const t0 = Date.now() - 5 * 60 * M;
+  // Created in order with the other tests (after the in-memory DB exists).
+  let oldQ: any, early: any, c1: any, c2: any, b1: any, b2: any, a1: any, later: any;
+  chain = chain.then(() => {
+    oldQ = post(SERGEJ, "who here actually sleeps before 3am", t0 - 10 * 24 * 60 * M); // 10 days earlier
+    early = post(JASON, "unrelated stuff from the morning", t0 - 90 * M); // before a gap
+    c1 = post(DANIEL, "I sleep at 4am every single day", t0 - 10 * M);
+    c2 = post(SERGEJ, "that's why you're always late lmao", t0 - 5 * M, c1.messageId);
+    b1 = post(JASON, "same", t0, c1.messageId);
+    b2 = post(DANIEL, "me neither lol", t0 + 1 * M, oldQ.messageId);
+    a1 = post(SERGEJ, "you two are hopeless", t0 + 2 * M);
+    later = post(JASON, "new topic hours later", t0 + 120 * M);
+  });
+
+  test("batches never cross a conversation gap", () => {
+    const chunks = chunkByConversation([early, c1, c2, b1, b2, a1, later], 25);
+    assert.deepStrictEqual(chunks.map((c) => c.length), [1, 5, 1]);
+    assert.deepStrictEqual(chunkByConversation([c1, c2, b1, b2, a1], 2).map((c) => c.length), [2, 2, 1]);
+  });
+
+  test("context: same conversation back to the gap, old replied-to messages, reactions after", () => {
+    const ctx = buildExtractionContext(XG, XCH, [b1, b2]);
+    assert.deepStrictEqual(ctx.before.map((m) => m.content), ["I sleep at 4am every single day", "that's why you're always late lmao"]);
+    assert.deepStrictEqual(ctx.parents.map((m) => m.content), ["who here actually sleeps before 3am"], "10-day-old replied-to message is included");
+    assert.deepStrictEqual(ctx.after.map((m) => m.content), ["you two are hopeless"]);
+  });
+
+  test("the extractor sees reply authors, tags and times", async () => {
+    let seen = "";
+    _setBatchRunnerForTests(undefined);
+    const ctx = buildExtractionContext(XG, XCH, [b1, b2]);
+    // render through the real prompt builder by capturing what the model would get
+    const captured: string[] = [];
+    _setExtractorModelForTests(async (prompt: string) => {
+      captured.push(prompt);
+      return { facts: [] };
+    });
+    updateAISettings(XG, { engine: "memory", learning: true }, DANIEL);
+    await runExtractionBatch({ guildId: XG, context: ctx.before, parents: ctx.parents, after: ctx.after, batch: [b1, b2], backfill: true });
+    _setExtractorModelForTests(undefined);
+    seen = captured[0] ?? "";
+    assert.ok(/\[REPLIED\] m1 \d\d:\d\d Sergej \[user \d+\]: who here actually sleeps before 3am/.test(seen), seen);
+    assert.ok(/\[EXTRACT\] m4 \d\d:\d\d Jason \[user \d+\] \(reply to m2 by Daniel \[user \d+\]\): same/.test(seen), seen);
+    assert.ok(/\[CONTEXT\] m3 .*that's why you're always late/.test(seen), seen);
+    assert.ok(/\[EXTRACT\] m5 .* \(reply to m1 by Sergej \[user \d+\]\): me neither lol/.test(seen), seen);
+    assert.ok(/\[AFTER\] m6 .*you two are hopeless/.test(seen), seen);
+    assert.ok(!/\d{4}-\d{2}-\d{2}/.test(seen), "no dates, only time of day");
+    updateAISettings(XG, { engine: "legacy" }, DANIEL);
+  });
+
+  test("confidence gate and context evidence", () => {
+    const refs = new Map([["m4", b1], ["m2", c1]]);
+    const base = { source_ref: "m4", subject_user_id: JASON, classification: "self_report", category: "habit", multi_valued: false, evidence_quote: "same", supersedes_fact_id: null };
+    const valid = validateCandidates(
+      XG,
+      [
+        { ...base, predicate: "sleep_schedule", value: "sleeps around 4am", confidence: "high", context_ref: "m2" },
+        { ...base, predicate: "always_late", value: "always late", confidence: "medium", context_ref: null },
+      ] as any,
+      refs,
+      new Set(["m4"]),
+      new Map()
+    );
+    assert.deepStrictEqual(valid.map((v) => v.value), ["sleeps around 4am"]);
+    storeValidatedFacts(XG, valid);
+    const fact = getActiveFacts(XG, [JASON]).find((f) => f.value === "sleeps around 4am")!;
+    const src = getFactSources(XG, fact.id);
+    assert.deepStrictEqual(src.map((x) => x.quote).sort(), ["I sleep at 4am every single day", "same"].sort(), "source + the message it relies on");
+    assert.deepStrictEqual(fact.reporters, [JASON], "the context author is not listed as a reporter");
+    assert.strictEqual(fact.evidenceCount, 1);
+    // deleting the real source withdraws the fact even though the context message still exists
+    onEvidenceChanged(XG, b1.messageId);
+    assert.ok(!getActiveFacts(XG, [JASON]).some((f) => f.value === "sleeps around 4am"));
+  });
+
+  section("fact lifetime");
+  test("facts never expire, hearsay included", () => {
+    clock = Date.now() - 400 * 24 * 60 * 60 * 1000; // said more than a year ago
+    const m = fakeMessage(SERGEJ, "jason is hardstuck bronze in valorant");
+    storeDiscordMessage(m, { ownBotId: BOT });
+    const msg = getMessage(G, m.id)!;
+    storeValidatedFacts(
+      G,
+      validateCandidates(
+        G,
+        [{ source_ref: "x", subject_user_id: JASON, classification: "third_party_claim", category: "skill_or_rank", predicate: "valorant_rank", value: "hardstuck bronze", multi_valued: false, evidence_quote: "hardstuck bronze", supersedes_fact_id: null, confidence: "high", context_ref: null } as any],
+        new Map([["x", msg]]),
+        new Set(["x"]),
+        new Map()
+      )
+    );
+    const f = getActiveFacts(G, [JASON]).find((x) => x.value === "hardstuck bronze")!;
+    assert.ok(f, "a year-old hearsay fact is still active");
+    assert.strictEqual(f.expiresAt, null);
+  });
+
+  section("backfill images on stored messages");
+  test("images:true picks up images of messages that were stored without them", () => {
+    const pic = (name: string, q = "ex=1") => ({ url: `https://cdn.discordapp.com/attachments/1/2/${name}?${q}`, name, contentType: "image/png", size: 1000 });
+    clock = Date.now();
+    // 1) stored by an earlier backfill without images -> "skipped"
+    const a: any = fakeMessage(DANIEL, "look at my desk", { attachments: [pic("desk.png")] });
+    storeDiscordMessage(a, { ownBotId: BOT, skipImages: true });
+    assert.strictEqual(getMessage(G, a.id)!.images[0].state, "skipped");
+    assert.strictEqual(refreshStoredImages(a), 1);
+    assert.strictEqual(getMessage(G, a.id)!.images[0].state, "pending");
+
+    // 2) stored before image support existed -> no image info at all
+    const b: any = fakeMessage(SERGEJ, "meme dump");
+    storeDiscordMessage(b, { ownBotId: BOT });
+    assert.strictEqual(getMessage(G, b.id)!.images.length, 0);
+    b.attachments = new Map([["0", pic("meme1.png")], ["1", pic("meme2.png")]]);
+    assert.strictEqual(refreshStoredImages(b), 2);
+
+    // 3) already described: the description survives fresh (re-signed) links
+    const c: any = fakeMessage(JASON, "new mouse", { attachments: [pic("mouse.png")] });
+    storeDiscordMessage(c, { ownBotId: BOT });
+    setMessageImages(G, c.id, getMessage(G, c.id)!.images.map((i) => ({ ...i, state: "done" as const, caption: "a pink gaming mouse" })));
+    c.attachments = new Map([["0", pic("mouse.png", "ex=2&is=3&hm=abc")]]);
+    assert.strictEqual(refreshStoredImages(c), 0);
+    const img = getMessage(G, c.id)!.images[0];
+    assert.strictEqual(img.caption, "a pink gaming mouse");
+    assert.ok(img.url.includes("ex=2"), "the stored link is the fresh one");
+  });
+
+  section("images in context");
+  const IG = "665991423933547300";
+  const ICH = "710000000000000888";
+  const ipost = (authorId: string, content: string, at: number, opts: any = {}) => {
+    clock = at - 1000;
+    const m: any = fakeMessage(authorId, content, opts);
+    m.guild = { ...guild, id: IG };
+    m.guildId = IG;
+    m.channel = { ...channel, id: ICH };
+    storeDiscordMessage(m, { ownBotId: BOT });
+    return m;
+  };
+  const ipng = (name: string) => ({ url: `https://cdn.discordapp.com/attachments/1/2/${name}?ex=1`, name, contentType: "image/png", size: 1000 });
+  let take: any, reaction: any;
+  chain = chain.then(() => {
+    const t = Date.now() - 60 * 60_000;
+    ipost(JASON, "ranked tonight?", t - 3 * 60_000);
+    take = ipost(SERGEJ, "I'm honestly the best league player in this server", t - 60_000);
+    reaction = ipost(DANIEL, "", t, { replyTo: take.id, attachments: [ipng("son.png")] });
+    ipost(JASON, "LMAOOO", t + 30_000, { replyTo: reaction.id });
+    ipost(SERGEJ, "whatever", t + 60_000);
+  });
+
+  test("the image model sees what the image answers and how people reacted", async () => {
+    const jobsSeen: any[] = [];
+    _setCaptionerForTests(async (_img, job) => {
+      jobsSeen.push(job);
+      return "Shows: anime girl laughing with the caption SON\nUsed as: reaction mocking Sergej's claim to be the best league player";
+    });
+    queueCaptions(reaction);
+    await _captionsIdle();
+    const ctx: string = jobsSeen[0].context;
+    assert.ok(ctx.includes("reply to this message:\nSergej: I'm honestly the best league player in this server"), ctx);
+    assert.ok(ctx.includes("Chat right before:\nJason: ranked tonight?"), ctx);
+    assert.ok(/Reactions after it:\nJason: LMAOOO\nSergej: whatever/.test(ctx), ctx);
+    const img = getMessage(IG, reaction.id)!.images[0];
+    assert.strictEqual(img.caption, "Shows: anime girl laughing with the caption SON | Used as: reaction mocking Sergej's claim to be the best league player");
+  });
+
+  test("profiles see the images someone posts, including image-only messages", () => {
+    const { prompt } = buildProfilePrompt(IG, DANIEL);
+    assert.ok(prompt.includes("[posted image: Shows: anime girl laughing"), prompt);
   });
 
   await chain;

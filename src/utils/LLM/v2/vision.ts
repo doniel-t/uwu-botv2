@@ -1,7 +1,7 @@
 import { Message } from "discord.js";
 import { generateText, ImagePart } from "ai";
 import { createOpenRouter, computeCost, logAPICall } from "../utils/api/openrouter";
-import { getMessage, setMessageImages } from "./messages";
+import { getMessage, getMessagesAfter, getMessagesBefore, setMessageImages, StoredMessage } from "./messages";
 import { MODELS } from "./settings";
 import { anySignal, timeoutSignal } from "./compat";
 
@@ -100,14 +100,49 @@ export async function downloadImage(url: string, signal?: AbortSignal): Promise<
 // Captioning queue
 // ---------------------------------------------------------------------------
 
-const CAPTION_SYSTEM = `You describe images posted in a Discord chat so a text-only bot can follow the conversation and joke about it.
-In at most 60 words, plain text, no preamble:
-- what it is (meme, screenshot of a game/app/chat, photo, drawing, chart, ...)
-- the key content and anything notable or funny
-- readable text, quoted briefly
+const CAPTION_SYSTEM = `You describe images posted in a Discord friend group so a text-only bot understands them. You get the image and the conversation around it.
+Images there are often reaction images and memes answering someone, or things people comment on, so explain the image's role, not just its pixels.
+Answer in exactly this format, max 80 words, no preamble:
+Shows: what it is (reaction image, meme, screenshot of a game/app/chat, own photo, drawing, ...), the key content, readable text quoted briefly.
+Used as: its role in the conversation, e.g. "reaction to Sergej's message about his rank, mocking him", "the poster's own setup photo", "sharing patch notes", "agreeing with Dani". Name who it's aimed at when clear. If there's no conversation context, write "Used as: posted without context".
 Do not guess who real people are from their faces. Do not describe anyone's body in a sexual way.`;
 
-type CaptionJob = { guildId: string; messageId: string; authorName: string; text: string };
+/** Context window for describing an image: what came before, what it answers, and the reactions. */
+const CAPTION_BEFORE_MS = 10 * 60_000;
+const CAPTION_AFTER_MS = 15 * 60_000;
+
+function captionLine(m: StoredMessage): string {
+  const imgs = m.images
+    .filter((i) => i.state === "done" && i.caption)
+    .map((i) => ` [image: ${i.caption}]`)
+    .join("");
+  const text = (m.content || "").replace(/\s+/g, " ").slice(0, 200);
+  return `${m.isOwnBot ? "BOT" : m.authorName}: ${text || "(no text)"}${imgs}`;
+}
+
+/** The conversation around an image message, as plain text for the vision model. */
+export function buildCaptionContext(stored: StoredMessage): string {
+  const parts: string[] = [];
+  if (stored.replyToMessageId) {
+    const parent = getMessage(stored.guildId, stored.replyToMessageId);
+    if (parent && !parent.deletedAt) parts.push(`The image post is a reply to this message:\n${captionLine(parent)}`);
+  }
+  const before = getMessagesBefore(stored.guildId, stored.channelId, stored.createdAt, 5).filter(
+    (m) => stored.createdAt - m.createdAt <= CAPTION_BEFORE_MS && m.messageId !== stored.replyToMessageId
+  );
+  if (before.length) parts.push(`Chat right before:\n${before.map(captionLine).join("\n")}`);
+  const after = getMessagesAfter(stored.guildId, stored.channelId, stored.createdAt, 25).filter(
+    (m) => m.createdAt - stored.createdAt <= CAPTION_AFTER_MS
+  );
+  const reactions = [
+    ...after.filter((m) => m.replyToMessageId === stored.messageId).slice(0, 3),
+    ...after.filter((m) => m.replyToMessageId !== stored.messageId).slice(0, 2),
+  ].sort((a, b) => a.createdAt - b.createdAt);
+  if (reactions.length) parts.push(`Reactions after it:\n${reactions.map(captionLine).join("\n")}`);
+  return parts.join("\n\n");
+}
+
+type CaptionJob = { guildId: string; messageId: string; authorName: string; text: string; context?: string };
 const jobs: CaptionJob[] = [];
 let active = 0;
 let onCaptioned: (guildId: string, channelId: string) => void = () => {};
@@ -126,12 +161,17 @@ let captionImpl = async (image: { data: Uint8Array; mediaType: string }, job: Ca
       {
         role: "user",
         content: [
-          { type: "text", text: `Posted by ${job.authorName}${job.text ? ` with the message: "${job.text.slice(0, 300)}"` : ""}` },
+          {
+            type: "text",
+            text:
+              `Posted by ${job.authorName}${job.text ? ` with the message: "${job.text.slice(0, 300)}"` : " without text"}.` +
+              (job.context ? `\n\n${job.context}` : ""),
+          },
           { type: "image", image: image.data, mediaType: image.mediaType },
         ],
       },
     ],
-    maxOutputTokens: 200,
+    maxOutputTokens: 250,
     maxRetries: 1,
     timeout: 25_000,
   });
@@ -203,6 +243,7 @@ async function captionMessage(job: CaptionJob): Promise<void> {
   const stored = getMessage(job.guildId, job.messageId);
   if (!stored || stored.deletedAt) return;
   const images = stored.images.map((i) => ({ ...i }));
+  const withContext: CaptionJob = { ...job, context: buildCaptionContext(stored) };
   for (const img of images) {
     if (img.state !== "pending") continue;
     const file = await downloader(img.url);
@@ -211,7 +252,7 @@ async function captionMessage(job: CaptionJob): Promise<void> {
       continue;
     }
     try {
-      const caption = (await captionImpl(file, job)).replace(/\s+/g, " ").trim().slice(0, 400);
+      const caption = (await captionImpl(file, withContext)).replace(/\s+/g, " ").replace(/ ?Used as:/, " | Used as:").trim().slice(0, 500);
       img.caption = caption || null;
       img.state = caption ? "done" : "failed";
     } catch (err) {

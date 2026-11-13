@@ -50,6 +50,23 @@ Keep the existing engine as `legacy`, enabled by default. Add a separate `memory
 
 The bot should learn by updating external memory, not by changing model weights. Its personality belongs in a short system prompt; personal facts belong in a queryable, attributed store.
 
+## Conversation-aware fact extraction
+
+The extractor reads each message inside its conversation (`extractionContext.ts`):
+
+| Piece | Rule |
+| --- | --- |
+| Batches | Up to 25 messages, never across a conversation gap of more than 20 minutes in a channel |
+| `[CONTEXT]` | Earlier messages of the same conversation, going back at most 45 minutes or 40 messages, stopping at the first 20-minute gap |
+| `[REPLIED]` | Messages that someone in the batch replied to and that lie outside that window, up to 2 levels, with author, at any age |
+| `[AFTER]` | Up to 6 messages from the 5 minutes after the batch: reactions, so jokes and contradictions are recognized |
+| Lines | `[TAG] m4 14:02 Name [user id] (reply to m2 by Name [user id]): text`. Time of day only, no dates |
+| Short replies | "same", "me too", or "yes" to a question are analysed when they are replies; laughter never is |
+| Gate | Each fact carries `confidence`; only `high` is kept. Plans, time-bound statements and facts outside the 12 profile categories are rejected in code |
+| Context evidence | `context_ref` names the message that gives a short reply its meaning. It is stored as a second source (`evidence_type = 'context'`) and shown by `get_fact_source` and `/memory source`. It never counts as support on its own: deleting the real source still withdraws the fact |
+
+Profiles are 150–250 words (Who, Personality, Talks like, Into, Reputation), written from up to 120 facts and the user's last 150 messages. Up to 1,400 characters of a profile go into the reply prompt.
+
 ## The three complaints and their fixes
 
 | Complaint | Root cause in code | Fix |

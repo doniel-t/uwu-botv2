@@ -17,8 +17,8 @@ const REFRESH_INTERVAL_MS = 2 * 60_000;
 /** Don't regenerate the same person more often than this. */
 const MIN_REGEN_GAP_MS = 30 * 60_000;
 const PER_RUN = 8;
-const SAMPLE_MESSAGES = 80;
-const MAX_PROFILE_CHARS = 1200;
+const SAMPLE_MESSAGES = 150;
+const MAX_PROFILE_CHARS = 2400;
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
@@ -54,11 +54,14 @@ export function markProfileDirty(guildId: string, userId: string): void {
     .run(guildId, userId, Date.now());
 }
 
-const PROFILE_SYSTEM = `You write short internal profiles of members of a Discord friend group, for a sarcastic bot that chats with and roasts them.
-Use ONLY the facts and messages given. Never invent anything. Plain text, max 90 words, no preamble, no dates. Describe the person, don't list trivia:
-Personality: humor, attitude, role in the group, what they get teased about.
-Talks like: language(s), tone, slang, catchphrases, typing quirks.
-Into: their main games/hobbies and what they're known for.
+const PROFILE_SYSTEM = `You write internal profiles of members of a Discord friend group, for a sarcastic bot that chats with and roasts them.
+Use ONLY the facts and messages given. Never invent anything. Plain text, 150-250 words, no preamble, no dates. Describe the person in full sentences, don't list trivia. Sections (skip empty ones):
+Who: job or studies, where they live, life situation, background.
+Personality: humor, attitude, temper, how they act in the group, what they're proud of, what they get defensive about.
+Talks like: language(s), tone, slang, catchphrases, typing quirks, how they react to being roasted.
+Into: main games (mains, ranks, how good they actually are), hobbies, media, tech and setup.
+Reputation: what the group teases them about, running jokes, rivalries and close friendships in the group.
+Posted images show their humor and taste (e.g. "answers everything with anime reaction images"); don't treat reaction images as facts about them.
 Mark hearsay ("according to X"). Leave out health, sexuality, religion and politics unless the person jokes about it themself.`;
 
 let generateImpl = async (prompt: string): Promise<string> => {
@@ -67,7 +70,7 @@ let generateImpl = async (prompt: string): Promise<string> => {
     model: createOpenRouter().chat(MODELS.extract),
     system: PROFILE_SYSTEM,
     prompt,
-    maxOutputTokens: 400,
+    maxOutputTokens: 900,
     maxRetries: 1,
     timeout: 60_000,
   });
@@ -89,15 +92,16 @@ export function _setProfileGeneratorForTests(fn?: (prompt: string) => Promise<st
 }
 
 export function buildProfilePrompt(guildId: string, userId: string): { prompt: string; factCount: number; messageCount: number } {
-  const facts = getActiveFacts(guildId, [userId]).slice(0, 60);
+  const facts = getActiveFacts(guildId, [userId]).slice(0, 120);
   const messages = (
     getV2DB()
       .prepare(
-        `SELECT author_name, content, created_at FROM messages
-         WHERE guild_id = ? AND author_id = ? AND deleted_at IS NULL AND is_own_bot = 0 AND length(content) >= 4
+        `SELECT author_name, content, images, created_at FROM messages
+         WHERE guild_id = ? AND author_id = ? AND deleted_at IS NULL AND is_own_bot = 0
+           AND (length(content) >= 4 OR images LIKE '%"state":"done"%')
          ORDER BY created_at DESC LIMIT ?`
       )
-      .all(guildId, userId, SAMPLE_MESSAGES) as { author_name: string; content: string; created_at: number }[]
+      .all(guildId, userId, SAMPLE_MESSAGES) as { author_name: string; content: string; images: string; created_at: number }[]
   ).reverse();
   const previous = getProfile(guildId, userId);
   const name = messages.length ? messages[messages.length - 1].author_name : "unknown";
@@ -106,7 +110,18 @@ export function buildProfilePrompt(guildId: string, userId: string): { prompt: s
     const src = f.kind === "third_party_claim" ? `according to ${f.reporters.map((r) => `user ${r}`).join(", ")}` : "said by themself";
     return `- ${f.predicate.replace(/_/g, " ")}: ${f.value} (${src})`;
   });
-  const msgLines = messages.map((m) => `- ${m.content.replace(/\s+/g, " ").slice(0, 200)}`);
+  const msgLines = messages.map((m) => {
+    let captions = "";
+    try {
+      captions = (JSON.parse(m.images || "[]") as { state: string; caption: string | null }[])
+        .filter((i) => i.state === "done" && i.caption)
+        .map((i) => ` [posted image: ${i.caption}]`)
+        .join("");
+    } catch {
+      /* ignore malformed */
+    }
+    return `- ${m.content.replace(/\s+/g, " ").slice(0, 200)}${captions}`.trim();
+  });
 
   const prompt = [
     `Person: ${name} [user ${userId}]`,
