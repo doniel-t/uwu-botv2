@@ -1173,6 +1173,33 @@ async function main() {
     assert.ok(prompt.includes("[posted image: Shows: anime girl laughing"), prompt);
   });
 
+  section("confidence levels");
+  test("medium is kept for harmless self-reports only", () => {
+    clock = Date.now();
+    const m = fakeMessage(MAX, "play league, perform decently, then play cs and bottom frag. sergej is a sore loser");
+    storeDiscordMessage(m, { ownBotId: BOT });
+    const msg = getMessage(G, m.id)!;
+    const base = { source_ref: "x", multi_valued: true, supersedes_fact_id: null, context_ref: null };
+    const valid = validateCandidates(
+      G,
+      [
+        { ...base, subject_user_id: MAX, classification: "self_report", category: "game", predicate: "plays_game", value: "League and CS", evidence_quote: "play league", confidence: "medium" },
+        { ...base, subject_user_id: MAX, classification: "self_report", category: "personality", predicate: "humble", value: "self-deprecating", evidence_quote: "bottom frag", confidence: "medium" },
+        { ...base, subject_user_id: SERGEJ, classification: "third_party_claim", category: "personality", predicate: "sore_loser", value: "sore loser", evidence_quote: "sergej is a sore loser", confidence: "medium" },
+        { ...base, subject_user_id: MAX, classification: "self_report", category: "skill_or_rank", predicate: "cs_skill", value: "bottom frags in CS", evidence_quote: "bottom frag", confidence: "low" },
+        { ...base, subject_user_id: SERGEJ, classification: "third_party_claim", category: "personality", predicate: "sore_loser", value: "sore loser", evidence_quote: "sergej is a sore loser", confidence: "high" },
+      ] as any,
+      new Map([["x", msg]]),
+      new Set(["x"]),
+      new Map()
+    );
+    assert.deepStrictEqual(
+      valid.map((v) => `${v.predicate}:${v.confidence}`),
+      ["plays_game:medium", "sore_loser:high"],
+      "medium self-report game kept; medium personality/hearsay and low dropped; high hearsay kept"
+    );
+  });
+
   await chain;
   console.log(`\n${passed}/${total} passed`);
 }
