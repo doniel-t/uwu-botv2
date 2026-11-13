@@ -18,6 +18,8 @@ const USER_INFORMATION = [
     "he is caffeine addicted",
     "he is a retired azur lane gambler",
     "he loves lolis",
+    "he is addicted to Arknights Endfields",
+    "pet play addict",
 ];
 
 const prompt = `

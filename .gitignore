@@ -3,3 +3,5 @@ secrets/
 Files/*
 src/DevCommands/Test.ts
 *.log
+# Memory engine v2 database
+data/memory-v2.db*

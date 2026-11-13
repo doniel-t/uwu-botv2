@@ -19,6 +19,7 @@ import { getDB } from './utils/LLM/vectorDB/db';
 import { backfill, TARGET_GUILD_ID } from './utils/LLM/vectorDB/ingest';
 import { queueMessage, startQueueProcessor } from './utils/LLM/vectorDB/queue';
 import { initPricing } from './utils/LLM/utils/api/openrouter';
+import { initMemoryV2, observeDelete, observeMessage, observeUpdate, routeMention, usesMemoryEngine } from './utils/LLM/v2/router';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -99,6 +100,13 @@ client.on('ready', async () => {
         console.error('[VectorDB] Initialization error:', error);
     }
 
+    // Memory engine (v2). Opt-in per guild via /ai engine; legacy stays the default.
+    try {
+        initMemoryV2(client);
+    } catch (error) {
+        console.error('[MemoryV2] Initialization error:', error);
+    }
+
     console.log('Bot is Ready!');
 });
 
@@ -138,6 +146,15 @@ client.on('messageCreate', async (message: Message) => {
     if (message.guild == null) return;
     if (message.author.bot) return;
 
+    // Memory engine: persist immediately (synchronously) so rapid follow-ups see it.
+    let memoryEngine = false;
+    try {
+        memoryEngine = usesMemoryEngine(message.guild.id);
+        if (memoryEngine) observeMessage(message, client.user?.id);
+    } catch (error) {
+        console.error('[MemoryV2] observe error:', error);
+    }
+
     // Queue ALL messages from the target guild for vector DB ingestion
     if (message.guild.id === TARGET_GUILD_ID && message.content.trim().length > 0) {
         queueMessage(message);
@@ -149,7 +166,11 @@ client.on('messageCreate', async (message: Message) => {
 
     // Check if this is a reply mentioning the bot (ReplyAI feature)
     if (replyAIHandler.shouldHandle(message)) {
-        await replyAIHandler.processMessage(message);
+        if (memoryEngine && client.user) {
+            await routeMention(message, client.user.id);
+        } else {
+            await replyAIHandler.processMessage(message);
+        }
         return; // Don't process as a regular command
     }
 
@@ -167,6 +188,14 @@ client.on('messageCreate', async (message: Message) => {
             }
         }
     }
+});
+
+client.on('messageUpdate', (_oldMessage, newMessage) => {
+    observeUpdate(newMessage, client.user?.id);
+});
+
+client.on('messageDelete', (message) => {
+    observeDelete(message);
 });
 
 client.login(process.env.TOKEN);
