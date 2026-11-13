@@ -16,6 +16,7 @@ import { ago, fmtDate, fmtDateTime, parseDateInput } from "../src/utils/LLM/v2/t
 import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfileRefreshOnce } from "../src/utils/LLM/v2/profiles";
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
 import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "../src/utils/LLM/v2/leakedTools";
+import { buildTools } from "../src/utils/LLM/v2/tools";
 import { countGuildMemory, getFactSources, looksTemporal, resetGuildMemory } from "../src/utils/LLM/v2/facts";
 import { searchMessages } from "../src/utils/LLM/v2/messages";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
@@ -960,6 +961,23 @@ async function main() {
     assert.ok(!/\banon\b/i.test(sp.replace('Never call anyone "anon"', "")), "anon only appears in the rule forbidding it");
     assert.ok(sp.includes("exactly ONE Discord message"));
     assert.ok(sp.includes("get_fact_source"));
+  });
+
+  section("tool limits");
+  test("the 11th tool call in one reply is refused", async () => {
+    const trace = { used: [] as string[], sources: [], factsReturned: [], webSearches: 0 };
+    const tools: any = buildTools(
+      { guildId: G, channelId: CH, refMap: new Map(), names: new Map(), webEnabled: false, canView: () => true, channelName: () => "general" },
+      trace as any
+    );
+    const results: any[] = [];
+    for (let i = 0; i < 11; i++) {
+      const tool = i % 2 ? tools.search_messages : tools.search_user_memory;
+      results.push(await tool.execute(i % 2 ? { from: "7d" } : { user: DANIEL, query: "" }, {}));
+    }
+    assert.ok(results.slice(0, 10).every((r) => !/limit/.test(r.error ?? "")), "first 10 calls run");
+    assert.ok(/limit/.test(results[10].error), JSON.stringify(results[10]));
+    assert.strictEqual(trace.used.length, 11);
   });
 
   await chain;

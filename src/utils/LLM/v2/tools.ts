@@ -27,6 +27,17 @@ export type ToolTrace = {
 };
 
 const MAX_WEB_SEARCHES = 2;
+/** Total tool calls allowed per reply; afterwards the model has to write its answer. */
+export const MAX_TOOL_CALLS = 10;
+const LIMIT_REACHED = {
+  error: `tool limit (${MAX_TOOL_CALLS} per reply) reached. Stop looking things up and write your reply now with what you have.`,
+};
+
+/** Count a tool call; returns false once the per-reply total is used up. */
+function allow(trace: ToolTrace, name: string): boolean {
+  trace.used.push(name);
+  return trace.used.length <= MAX_TOOL_CALLS;
+}
 const WEB_TIMEOUT_MS = 12_000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const webCache = new Map<string, { at: number; value: WebResult }>();
@@ -140,7 +151,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         },
       }),
       execute: async (input: { user: string; query: string; history?: boolean; from?: string; to?: string }) => {
-        trace.used.push("search_user_memory");
+        if (!allow(trace, "search_user_memory")) return LIMIT_REACHED;
         const ids = resolveUser(ctx, input.user);
         if (ids.length === 0) return { error: `no server member matches "${input.user}"` };
         if (ids.length > 1) return { error: `"${input.user}" is ambiguous`, candidates: ids.map((id) => ({ id, name: ctx.names.get(id) })) };
@@ -168,7 +179,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
       description:
         "Search the stored chat log of this server by date/time range, optionally filtered by author, keywords and channel. " +
         "Use for questions like \"what did Dani say yesterday?\", \"what happened on 2026-08-04?\", \"when did Serg first mention his new job?\". " +
-        "Returns at most 40 messages, oldest first. Dates are in the server's timezone. The log only covers what the bot has stored (see coverage in the result).",
+        "Returns at most 25 messages, oldest first. Dates are in the server's timezone. The log only covers what the bot has stored (see coverage in the result).",
       inputSchema: jsonSchema<{ from: string; to?: string; user?: string; query?: string; channel?: string; limit?: number }>({
         type: "object",
         additionalProperties: false,
@@ -179,11 +190,11 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
           user: { type: "string", description: "only messages by this user (ID, mention or name/nickname)" },
           query: { type: "string", description: "keywords that must all appear" },
           channel: { type: "string", description: "only this channel (ID, or 'this' for the current channel)" },
-          limit: { type: "integer", minimum: 1, maximum: 40 },
+          limit: { type: "integer", minimum: 1, maximum: 25 },
         },
       }),
       execute: async (input: { from: string; to?: string; user?: string; query?: string; channel?: string; limit?: number }) => {
-        trace.used.push("search_messages");
+        if (!allow(trace, "search_messages")) return LIMIT_REACHED;
         const from = parseDateInput(input.from);
         if (from == null) return { error: `can't read the date "${input.from}"` };
         const fromText = input.from.trim();
@@ -201,7 +212,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
           .split(/\s+/)
           .map((w) => w.trim())
           .filter((w) => w.length >= 2);
-        const limit = Math.min(Math.max(input.limit ?? 30, 1), 40);
+        const limit = Math.min(Math.max(input.limit ?? 20, 1), 25);
 
         // Over-fetch, then drop channels the requester can't see.
         const res = searchMessages(ctx.guildId, { from, to, authorIds, channelIds, words, limit: limit * 3 });
@@ -216,7 +227,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
             time: fmtDateTime(m.createdAt),
             channel: `#${ctx.channelName(m.channelId)}`,
             author: m.isOwnBot ? "you (the bot)" : `${m.authorName} [user ${m.authorId}]`,
-            text: [m.content, ...m.images.filter((i) => i.caption).map((i) => `[image: ${i.caption}]`)].join(" ").slice(0, 400),
+            text: [m.content, ...m.images.filter((i) => i.caption).map((i) => `[image: ${i.caption}]`)].join(" ").slice(0, 250),
           })),
         };
       },
@@ -233,7 +244,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         properties: { fact_id: { type: "integer", description: "the fact id, shown as [fact #id]" } },
       }),
       execute: async (input: { fact_id: number }) => {
-        trace.used.push("get_fact_source");
+        if (!allow(trace, "get_fact_source")) return LIMIT_REACHED;
         const fact = getFact(ctx.guildId, Number(input.fact_id));
         if (!fact) return { error: `no fact #${input.fact_id} in this server` };
         const sources = getFactSources(ctx.guildId, fact.id).filter((src) => !src.channelId || ctx.canView(src.channelId));
@@ -265,7 +276,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         },
       }),
       execute: async ({ message, limit }: { message: string; limit?: number }) => {
-        trace.used.push("get_conversation_context");
+        if (!allow(trace, "get_conversation_context")) return LIMIT_REACHED;
         const id = ctx.refMap.get(message.trim()) ?? message.trim();
         const msgs = getMessagesAround(ctx.guildId, ctx.channelId, id, Math.min(limit ?? 10, 20));
         if (msgs.length === 0) return { error: "message not found in this channel" };
@@ -294,7 +305,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         properties: { query: { type: "string", description: "a concise web search query" } },
       }),
       execute: async ({ query }: { query: string }, { abortSignal }: { abortSignal?: AbortSignal }) => {
-        trace.used.push("web_search");
+        if (!allow(trace, "web_search")) return LIMIT_REACHED;
         if (trace.webSearches >= MAX_WEB_SEARCHES) return { ok: false, error: "search limit for this reply reached; answer with what you have" };
         trace.webSearches++;
         const result = await webSearch(query, abortSignal);

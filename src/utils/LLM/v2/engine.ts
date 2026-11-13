@@ -7,7 +7,7 @@ import { recordFactUsage, RankedFact, selectFactsForReply } from "./facts";
 import { getMessage, storeDiscordMessage } from "./messages";
 import { ResponseQueue } from "./responseQueue";
 import { getAISettings, MODELS } from "./settings";
-import { buildTools, ToolTrace } from "./tools";
+import { buildTools, MAX_TOOL_CALLS, ToolTrace } from "./tools";
 import { requestImageParts } from "./vision";
 import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "./leakedTools";
 import type { ModelMessage, ToolSet } from "ai";
@@ -15,7 +15,8 @@ import { buildSystemPrompt } from "./persona";
 import { getProfile } from "./profiles";
 
 const queue = new ResponseQueue();
-const MAX_STEPS = 4;
+/** Room for MAX_TOOL_CALLS lookups plus the final answer. */
+const MAX_STEPS = MAX_TOOL_CALLS + 2;
 const DISCORD_LIMIT = 2000;
 
 export function pendingResponses(): number {
@@ -72,7 +73,7 @@ const MAX_RECOVERY_ROUNDS = 2;
 async function recoverLeakedToolCalls(
   text: string,
   o: { tools: ToolSet; trace: ToolTrace; signal: AbortSignal; system: string; messages: ModelMessage[] }
-): Promise<string> {
+): Promise<{ text: string; results: string[] }> {
   let current = text;
   const results: string[] = [];
   for (let round = 0; round < MAX_RECOVERY_ROUNDS && hasLeakedToolMarkup(current); round++) {
@@ -110,7 +111,33 @@ async function recoverLeakedToolCalls(
     });
     current = follow.text;
   }
-  return hasLeakedToolMarkup(current) ? stripToolMarkup(current) : current;
+  return { text: hasLeakedToolMarkup(current) ? stripToolMarkup(current) : current, results };
+}
+
+/**
+ * The model ended without any text (often after spending every step on
+ * lookups). Give it everything it found and ask once more, without tools.
+ */
+async function forceFinalAnswer(o: {
+  system: string;
+  messages: ModelMessage[];
+  stepMessages: ModelMessage[];
+  extraResults: string[];
+  signal: AbortSignal;
+}): Promise<string> {
+  const nudge =
+    (o.extraResults.length ? `${o.extraResults.join("\n\n")}\n\n` : "") +
+    "You're done looking things up. Write your reply to the <current_request> now: plain text, one message, no tool calls. " +
+    "If the lookups didn't find what was asked, say that in character.";
+  const follow = await generateText({
+    model: createOpenRouter().chat(MODELS.chat),
+    system: o.system,
+    messages: [...o.messages, ...o.stepMessages, { role: "user", content: nudge }] as ModelMessage[],
+    abortSignal: o.signal,
+    maxRetries: 1,
+    maxOutputTokens: 700,
+  });
+  return hasLeakedToolMarkup(follow.text) ? stripToolMarkup(follow.text) : follow.text;
 }
 
 function updateResponse(triggerId: string, fields: Record<string, unknown>) {
@@ -262,8 +289,10 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
       messages: ctx.messages,
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
-      // Last step must produce text, not another tool call.
-      prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { activeTools: [] } : {}),
+      // After MAX_TOOL_CALLS lookups (or on the last step) tools are switched off,
+      // so the model has to write its answer.
+      prepareStep: ({ stepNumber }: { stepNumber: number }) =>
+        trace.used.length >= MAX_TOOL_CALLS || stepNumber >= MAX_STEPS - 1 ? ({ activeTools: [], toolChoice: "none" } as any) : {},
       abortSignal: signal,
       maxRetries: 1,
       maxOutputTokens: 700,
@@ -271,13 +300,32 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
 
     // Some models write tool calls as text (e.g. DeepSeek's "<｜DSML｜invoke ...>").
     // Run those tools ourselves and ask for the real answer; never post the markup.
-    const replyText = await recoverLeakedToolCalls(result.text, {
+    const recovered = await recoverLeakedToolCalls(result.text, {
       tools,
       trace,
       signal,
       system: systemPrompt(botId, webEnabled),
       messages: ctx.messages,
     });
+    let replyText = recovered.text;
+    if (!replyText.trim()) {
+      const last = result.steps[result.steps.length - 1];
+      console.warn(
+        `[MemoryV2] Empty reply from ${MODELS.chat} after ${result.steps.length} step(s) ` +
+          `(finish: ${result.finishReason}, last step: ${last?.finishReason}, tools: ${trace.used.join(",") || "none"}); forcing a final answer`
+      );
+      replyText = await forceFinalAnswer({
+        system: systemPrompt(botId, webEnabled),
+        messages: ctx.messages,
+        stepMessages: ((result as any).response?.messages ?? []) as ModelMessage[],
+        extraResults: recovered.results,
+        signal,
+      }).catch((err) => {
+        console.error("[MemoryV2] Forced final answer failed:", err);
+        return "";
+      });
+      if (!replyText.trim()) console.warn("[MemoryV2] Still empty after forcing; sending the fallback message");
+    }
     const content = finalize(replyText, trace);
 
     updateResponse(trigger.id, { state: "sending" });

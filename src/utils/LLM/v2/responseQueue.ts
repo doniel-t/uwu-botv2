@@ -21,7 +21,7 @@ export const DEFAULT_LIMITS: QueueLimits = {
   maxTriggersPerUser: 3,
   userWindowMs: 10_000,
   maxConcurrent: 3,
-  jobTimeoutMs: 45_000,
+  jobTimeoutMs: 120_000, // up to 10 lookups + a forced final answer
 };
 
 export type EnqueueResult = { accepted: true; position: number } | { accepted: false; reason: "channel_full" | "user_rate_limited" | "duplicate" };
