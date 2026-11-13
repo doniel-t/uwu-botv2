@@ -3,6 +3,7 @@ import { generateText, ImagePart } from "ai";
 import { createOpenRouter, computeCost, logAPICall } from "../utils/api/openrouter";
 import { getMessage, setMessageImages } from "./messages";
 import { MODELS } from "./settings";
+import { anySignal, timeoutSignal } from "./compat";
 
 /**
  * Image understanding for the memory engine.
@@ -80,9 +81,8 @@ export function renderImages(images: ImageInfo[]): string {
 }
 
 export async function downloadImage(url: string, signal?: AbortSignal): Promise<{ data: Uint8Array; mediaType: string } | null> {
-  const timeout = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    const res = await fetch(url, { signal: anySignal([signal, timeoutSignal(DOWNLOAD_TIMEOUT_MS)]) });
     if (!res.ok) return null;
     const mediaType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
     if (!SUPPORTED.has(mediaType)) return null;

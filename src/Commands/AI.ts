@@ -1,4 +1,6 @@
-import DiscordJS, { ApplicationCommandOptionType, MessageFlags } from "discord.js";
+import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
+import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, subcommand } from "../utils/LLM/v2/compat";
+
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { getAISettings, MODELS, updateAISettings } from "../utils/LLM/v2/settings";
 import { pendingResponses } from "../utils/LLM/v2/engine";
@@ -73,7 +75,7 @@ class AI extends NormalCommandClass {
       return;
     }
     const guildId = interaction.guildId;
-    const sub = interaction.options.getSubcommand();
+    const sub = subcommand(interaction);
 
     if (sub === "status") {
       const s = getAISettings(guildId);
@@ -86,18 +88,18 @@ class AI extends NormalCommandClass {
         `**Learning:** ${s.learning ? "on" : "paused"}${s.engine === "legacy" ? " (memory engine only)" : ""}`,
         `**Pending replies:** ${pendingResponses()}`,
       ];
-      interaction.reply({ content: lines.join("\n"), flags: MessageFlags.Ephemeral });
+      interaction.reply({ content: lines.join("\n"), ...EPHEMERAL });
       return;
     }
 
     if (!canManageGuild(interaction)) {
-      interaction.reply({ content: "You need the Manage Server permission for that.", flags: MessageFlags.Ephemeral });
+      interaction.reply({ content: "You need the Manage Server permission for that.", ...EPHEMERAL });
       return;
     }
 
     switch (sub) {
       case "engine": {
-        const mode = interaction.options.getString("mode", true) === "memory" ? "memory" : "legacy";
+        const mode = optString(interaction, "mode")! === "memory" ? "memory" : "legacy";
         updateAISettings(guildId, { engine: mode }, interaction.user.id);
         interaction.reply({
           content:
@@ -108,19 +110,19 @@ class AI extends NormalCommandClass {
         return;
       }
       case "web": {
-        const mode = interaction.options.getString("mode", true) === "off" ? "off" : "auto";
+        const mode = optString(interaction, "mode")! === "off" ? "off" : "auto";
         updateAISettings(guildId, { webMode: mode }, interaction.user.id);
         interaction.reply({ content: `Web search is now **${mode}**.` });
         return;
       }
       case "learning": {
-        const enabled = interaction.options.getBoolean("enabled", true);
+        const enabled = optBoolean(interaction, "enabled")!;
         updateAISettings(guildId, { learning: enabled }, interaction.user.id);
         interaction.reply({ content: enabled ? "Learning is **on**." : "Learning is **paused**. Existing memories are kept." });
         return;
       }
       default:
-        interaction.reply({ content: "Unknown subcommand.", flags: MessageFlags.Ephemeral });
+        interaction.reply({ content: "Unknown subcommand.", ...EPHEMERAL });
     }
   }
 }

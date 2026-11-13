@@ -51,11 +51,12 @@ export function maskUnmatchable(text: string): string {
 
 export function tokenize(text: string): Token[] {
   const tokens: Token[] = [];
-  for (const m of text.matchAll(TOKEN_RE)) {
+  const re = new RegExp(TOKEN_RE.source, TOKEN_RE.flags);
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
     const raw = m[0];
     const norm = normalizeWord(raw);
     if (!norm) continue;
-    tokens.push({ norm, raw, start: m.index!, end: m.index! + raw.length });
+    tokens.push({ norm, raw, start: m.index, end: m.index + raw.length });
   }
   return tokens;
 }

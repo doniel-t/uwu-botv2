@@ -4,6 +4,7 @@ import { searchFacts, Fact } from "./facts";
 import { getMessagesAround } from "./messages";
 import { resolveName } from "./nicknames";
 import { MODELS } from "./settings";
+import { anySignal, timeoutSignal } from "./compat";
 
 export type ToolContext = {
   guildId: string;
@@ -40,8 +41,7 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<We
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
 
   const start = Date.now();
-  const timeout = AbortSignal.timeout(WEB_TIMEOUT_MS);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  const combined = anySignal([signal, timeoutSignal(WEB_TIMEOUT_MS)]);
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/responses", {

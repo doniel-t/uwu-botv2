@@ -184,7 +184,7 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
   try {
     const ctx = await buildContext(trigger, botId);
 
-    const subjects = [...new Set([...ctx.targetIds, ctx.requesterId, ...stored.nameRefs.flatMap((r) => (r.userId ? [r.userId] : []))])];
+    const subjects = [...new Set([...ctx.targetIds, ctx.requesterId, ...stored.nameRefs.filter((r) => !!r.userId).map((r) => r.userId!)])];
     const facts = selectFactsForReply(guildId, channelId, subjects, ctx.targetIds, ctx.topicText, stored.content);
 
     // Images on the ping or the replied-to message go to the model directly.

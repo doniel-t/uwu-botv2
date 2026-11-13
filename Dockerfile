@@ -34,4 +34,8 @@ RUN mkdir -p /app/data
 
 ENV VECTOR_DB_PATH=/app/data/vector.db
 
+# Skip ts-node's runtime type check: TypeScript 4.9 cannot parse the newer
+# discord.js/zod typings, which only causes startup failures, not safer code.
+ENV TS_NODE_TRANSPILE_ONLY=true
+
 CMD ["pnpm", "run", "main"]

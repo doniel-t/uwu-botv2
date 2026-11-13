@@ -110,7 +110,7 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 type Readable = { id: string; name: string; messages: { fetch(opts: { limit: number; before?: string }): Promise<Map<string, Message>> } };
 
 async function listChannels(guild: Guild, since: number, onlyId?: string): Promise<Readable[]> {
-  const me: GuildMember = guild.members.me ?? (await guild.members.fetchMe());
+  const me: GuildMember = guild.members.me ?? (await guild.members.fetch(guild.client.user!.id));
   const canRead = (ch: GuildBasedChannel) =>
     !!ch.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory]);
 

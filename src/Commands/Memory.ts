@@ -1,4 +1,6 @@
-import DiscordJS, { ApplicationCommandOptionType, MessageFlags } from "discord.js";
+import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
+import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, subcommand } from "../utils/LLM/v2/compat";
+
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { forgetAllAbout, forgetFact, getActiveFacts, getFact } from "../utils/LLM/v2/facts";
 import { setUserLearning } from "../utils/LLM/v2/settings";
@@ -44,11 +46,11 @@ class Memory extends NormalCommandClass {
       return;
     }
     const guildId = interaction.guildId;
-    const ephemeral = { flags: MessageFlags.Ephemeral } as const;
+    const ephemeral = EPHEMERAL;
 
-    switch (interaction.options.getSubcommand()) {
+    switch (subcommand(interaction)) {
       case "show": {
-        const user = interaction.options.getUser("user") ?? interaction.user;
+        const user = optUser(interaction, "user") ?? interaction.user;
         if (user.id !== interaction.user.id && !canManageGuild(interaction)) {
           interaction.reply({ content: "You can only view your own memories.", ...ephemeral });
           return;
@@ -73,7 +75,7 @@ class Memory extends NormalCommandClass {
         return;
       }
       case "forget": {
-        const id = interaction.options.getInteger("fact", true);
+        const id = optInteger(interaction, "fact")!;
         const fact = getFact(guildId, id);
         if (!fact) {
           interaction.reply({ content: `No fact #${id} here.`, ...ephemeral });
@@ -89,7 +91,7 @@ class Memory extends NormalCommandClass {
         return;
       }
       case "learning": {
-        const enabled = interaction.options.getBoolean("enabled", true);
+        const enabled = optBoolean(interaction, "enabled")!;
         setUserLearning(guildId, interaction.user.id, enabled);
         if (enabled) {
           interaction.reply({ content: "Okay, I'll learn things about you again.", ...ephemeral });

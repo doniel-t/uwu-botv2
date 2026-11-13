@@ -1,4 +1,6 @@
-import DiscordJS, { ApplicationCommandOptionType, MessageFlags } from "discord.js";
+import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
+import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, subcommand } from "../utils/LLM/v2/compat";
+
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { addNickname, listNicknames, removeNickname } from "../utils/LLM/v2/nicknames";
 import { canManageGuild } from "../utils/LLM/v2/permissions";
@@ -42,13 +44,13 @@ class Nickname extends NormalCommandClass {
       return;
     }
     const guildId = interaction.guildId;
-    const ephemeral = { flags: MessageFlags.Ephemeral } as const;
+    const ephemeral = EPHEMERAL;
     const noPings = { allowedMentions: { parse: [] as never[] } };
 
-    switch (interaction.options.getSubcommand()) {
+    switch (subcommand(interaction)) {
       case "add": {
-        const user = interaction.options.getUser("user", true);
-        const name = interaction.options.getString("name", true);
+        const user = optUser(interaction, "user")!;
+        const name = optString(interaction, "name")!;
         if (user.bot) {
           interaction.reply({ content: "Bots don't get nicknames.", ...ephemeral });
           return;
@@ -66,8 +68,8 @@ class Nickname extends NormalCommandClass {
         return;
       }
       case "remove": {
-        const user = interaction.options.getUser("user", true);
-        const name = interaction.options.getString("name", true);
+        const user = optUser(interaction, "user")!;
+        const name = optString(interaction, "name")!;
         if (user.id !== interaction.user.id && !canManageGuild(interaction)) {
           interaction.reply({ content: "Only that user or someone with Manage Server can remove their nicknames.", ...ephemeral });
           return;
@@ -81,7 +83,7 @@ class Nickname extends NormalCommandClass {
         return;
       }
       case "list": {
-        const user = interaction.options.getUser("user");
+        const user = optUser(interaction, "user");
         const rows = listNicknames(guildId, user?.id);
         if (rows.length === 0) {
           interaction.reply({ content: user ? `<@${user.id}> has no nicknames.` : "No nicknames yet. Add one with `/nickname add`.", ...noPings });

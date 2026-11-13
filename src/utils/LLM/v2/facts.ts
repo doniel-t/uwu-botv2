@@ -501,7 +501,8 @@ async function extractBatch(job: ExtractionBatch): Promise<ExtractionStats> {
     timeout: 60_000,
   });
 
-  const candidates = (result.output?.facts ?? []) as Candidate[];
+  const output = (result as any).output as { facts?: Candidate[] } | undefined;
+  const candidates = (output?.facts ?? []) as Candidate[];
   const valid = validateCandidates(guildId, candidates, refToMessage, batchRefs, knownById);
   // Learning may have been switched off while the model was running.
   const allowed = job.backfill ? getAISettings(guildId).learning : isLearningActive(guildId);

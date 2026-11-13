@@ -1,4 +1,6 @@
-import DiscordJS, { ApplicationCommandOptionType, MessageFlags } from "discord.js";
+import DiscordJS, { ApplicationCommandOptionType } from "discord.js";
+import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, subcommand } from "../utils/LLM/v2/compat";
+
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { BACKFILL_OWNER_ID, parseSince, startBackfill } from "../utils/LLM/v2/backfill";
 
@@ -27,7 +29,7 @@ class Backfill extends NormalCommandClass {
   ];
 
   async reply(interaction: DiscordJS.ChatInputCommandInteraction): Promise<void> {
-    const ephemeral = { flags: MessageFlags.Ephemeral } as const;
+    const ephemeral = EPHEMERAL;
     if (interaction.user.id !== BACKFILL_OWNER_ID) {
       await interaction.reply({ content: "Only the bot owner can run backfills.", ...ephemeral });
       return;
@@ -37,7 +39,7 @@ class Backfill extends NormalCommandClass {
       return;
     }
 
-    const raw = interaction.options.getString("since", true);
+    const raw = optString(interaction, "since")!;
     const since = parseSince(raw);
     if (since == null) {
       await interaction.reply({ content: `Couldn't read "${raw}". Use a date like 2026-08-01 or days like 90d.`, ...ephemeral });
@@ -54,8 +56,8 @@ class Backfill extends NormalCommandClass {
       guild: interaction.guild,
       ownerId: interaction.user.id,
       since,
-      channelId: interaction.options.getChannel("channel")?.id,
-      includeImages: interaction.options.getBoolean("images") ?? false,
+      channelId: optChannelId(interaction, "channel") ?? undefined,
+      includeImages: optBoolean(interaction, "images") ?? false,
     });
     if ("error" in res) await interaction.editReply({ content: res.error });
   }
