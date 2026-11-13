@@ -370,6 +370,9 @@ export const FACT_CATEGORIES = [
   "reputation",
 ] as const;
 
+/** Categories where a "medium" confidence self-report is still kept. */
+const MEDIUM_OK_CATEGORIES = new Set(["game", "skill_or_rank", "hobby", "taste", "possession"]);
+
 /** Plans, intentions and time-bound statements are never facts, whatever the model says. */
 const TEMPORAL_VALUE_RE =
   /\b(plan(s|ned|ning)?|going to|gonna|will|wants? to|wanted to|wanna|would like|hop(e|es|ing) to|tomorrow|tonight|today|yesterday|next (week|month|year|weekend|time)|this (week|month|year|weekend|morning|evening)|last (week|month|night|weekend)|later|soon|currently|right now|at the moment|recently|considering|thinking (about|of)|might|maybe|about to|upcoming|deadline|appointment|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
@@ -417,7 +420,7 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
           confidence: {
             type: "string",
             enum: ["high", "medium", "low"],
-            description: "high only if you'd bet it is true, lasting and about this person; only high facts are kept",
+            description: "high = clearly stated and lasting; medium = likely true but said casually; low = unsure",
           },
           context_ref: {
             type: ["string", "null"],
@@ -458,7 +461,8 @@ How to read the log:
 - "(reply to m4 by Name)" means that line is a Discord reply to m4. Read every [EXTRACT] message in its conversation: which question it answers, what it agrees or disagrees with, who it is aimed at.
 - A short reply can carry a fact through what it replies to: B "I sleep at 4am every day" -> A replies "same" means A sleeps very late. Then quote the [EXTRACT] message and set context_ref to the message that gives it meaning.
 - Use the reactions around a message: if people laugh, mock it or it's obvious bait, it is a joke, not a fact.
-- confidence: "high" only when you would bet that the fact is true, lasting and about this person. Only high-confidence facts are kept, so don't inflate.
+- confidence: "high" when it is clearly stated and lasting. "medium" when it's very likely true but said casually or in passing (e.g. "play league ... then play cs, bottom frag" -> plays League and CS). "low" when unsure. Be honest: low facts are dropped, and medium is only kept for harmless self-reported things (games, ranks, hobbies, taste, possessions).
+- Casual mentions count: people rarely announce facts, they reveal them while talking ("my car", "ich hab X", "after my shift").
 
 The bar is high: would this still be true and worth knowing about them in a month? If not, skip it.
 NEVER extract:
@@ -481,7 +485,7 @@ classification:
   Reaction images and memes ("Used as: reaction to ...") show how someone reacts; they are never facts about the poster, but they help you read the conversation (who is mocked, what is agreed with).
   Only extract a fact from an image when it is the author's own photo/screenshot AND their text claims it ("my new setup", "finally hit diamond"); then the quote may come from the description.
   A text message that replies to an image is a comment on that image: read it together with the image description.
-- Most batches contain zero facts, and that is fine. Return {"facts": []} when nothing clears the bar.`;
+- Return {"facts": []} when nothing qualifies.`;
 
 function normalizeQuote(s: string): string {
   return s
@@ -521,8 +525,8 @@ export function validateCandidates(
     const message = refToMessage.get(c.source_ref);
     if (!message || message.isOwnBot) continue;
     if (c.classification === "joke") continue;
-    // Only facts the extractor would bet on. (Missing field = older test data/models: treat as high.)
-    if (c.confidence && c.confidence !== "high") continue;
+    // Low confidence is never kept (medium only for harmless self-reports, checked below).
+    if (c.confidence === "low") continue;
     // No temporary or time-bound facts at all, only profile categories.
     if (c.classification === "temporary_state") continue;
     if (!(FACT_CATEGORIES as readonly string[]).includes(c.category)) continue;
@@ -556,6 +560,10 @@ export function validateCandidates(
     } else {
       kind = "self_report";
     }
+    // Medium confidence is fine for harmless things people say about themselves;
+    // hearsay, personality, reputation etc. still need high confidence.
+    // (Missing field = older test data/models: treat as high.)
+    if (c.confidence === "medium" && !(kind === "self_report" && MEDIUM_OK_CATEGORIES.has(c.category))) continue;
 
     if (!userAllowsLearning(guildId, message.authorId) || !userAllowsLearning(guildId, c.subject_user_id)) continue;
 
