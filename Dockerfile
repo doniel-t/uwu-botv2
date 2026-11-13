@@ -1,6 +1,7 @@
-FROM node:20-slim
+FROM node:22-slim
 
-# Pinned: pnpm@latest broke builds when pnpm 11+ changed how build scripts are approved.
+# pnpm is pinned: pnpm@latest broke builds when pnpm 11+ changed how build scripts are approved.
+# pnpm 11 needs Node >= 22.13, hence node:22-slim.
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
 
 WORKDIR /app
