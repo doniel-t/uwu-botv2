@@ -4,6 +4,7 @@ import { EPHEMERAL, optBoolean, optChannelId, optInteger, optString, optUser, su
 import { NormalCommandClass } from "../utils/Commands/NormalCommand/NormalCommand";
 import { forgetAllAbout, forgetFact, getActiveFacts, getFact } from "../utils/LLM/v2/facts";
 import { setUserLearning } from "../utils/LLM/v2/settings";
+import { deleteProfile, getProfile, markProfileDirty, regenerateProfile } from "../utils/LLM/v2/profiles";
 import { canManageGuild } from "../utils/LLM/v2/permissions";
 
 class Memory extends NormalCommandClass {
@@ -16,6 +17,16 @@ class Memory extends NormalCommandClass {
       required: false,
       type: ApplicationCommandOptionType.Subcommand,
       options: [{ name: "user", description: "Whose memories to show", required: false, type: ApplicationCommandOptionType.User }],
+    },
+    {
+      name: "profile",
+      description: "Show the bot's profile of a user (yourself by default; others need Manage Server)",
+      required: false,
+      type: ApplicationCommandOptionType.Subcommand,
+      options: [
+        { name: "user", description: "Whose profile to show", required: false, type: ApplicationCommandOptionType.User },
+        { name: "refresh", description: "Rewrite it now from the latest facts", required: false, type: ApplicationCommandOptionType.Boolean },
+      ],
     },
     {
       name: "forget",
@@ -40,7 +51,7 @@ class Memory extends NormalCommandClass {
     },
   ];
 
-  reply(interaction: DiscordJS.ChatInputCommandInteraction): void {
+  async reply(interaction: DiscordJS.ChatInputCommandInteraction): Promise<void> {
     if (!interaction.guildId) {
       interaction.reply({ content: "This command only works in a server." });
       return;
@@ -74,6 +85,38 @@ class Memory extends NormalCommandClass {
         interaction.reply({ content, allowedMentions: { parse: [] }, ...ephemeral });
         return;
       }
+      case "profile": {
+        const user = optUser(interaction, "user") ?? interaction.user;
+        if (user.id !== interaction.user.id && !canManageGuild(interaction)) {
+          interaction.reply({ content: "You can only view your own profile.", ...ephemeral });
+          return;
+        }
+        let profile = getProfile(guildId, user.id);
+        if (optBoolean(interaction, "refresh")) {
+          await interaction.deferReply(ephemeral);
+          try {
+            profile = (await regenerateProfile(guildId, user.id)) ?? profile;
+          } catch (err) {
+            await interaction.editReply({ content: `Couldn't rewrite the profile: ${(err as Error).message}` });
+            return;
+          }
+          await interaction.editReply({
+            content: profile
+              ? `**Profile of <@${user.id}>** \n${profile.profile}`.slice(0, 1990)
+              : `Not enough known about <@${user.id}> yet for a profile.`,
+            allowedMentions: { parse: [] },
+          } as any);
+          return;
+        }
+        interaction.reply({
+          content: profile
+            ? `**Profile of <@${user.id}>** \n${profile.profile}`.slice(0, 1990)
+            : `No profile of <@${user.id}> yet. It's written once I've learned a few facts (or use \`refresh:true\`).`,
+          allowedMentions: { parse: [] },
+          ...ephemeral,
+        });
+        return;
+      }
       case "forget": {
         const id = optInteger(interaction, "fact")!;
         const fact = getFact(guildId, id);
@@ -87,6 +130,7 @@ class Memory extends NormalCommandClass {
           return;
         }
         forgetFact(guildId, id);
+        markProfileDirty(guildId, fact.subjectUserId);
         interaction.reply({ content: `Forgot #${id} (${fact.predicate.replace(/_/g, " ")}: ${fact.value}).`, ...ephemeral });
         return;
       }
@@ -97,7 +141,8 @@ class Memory extends NormalCommandClass {
           interaction.reply({ content: "Okay, I'll learn things about you again.", ...ephemeral });
         } else {
           const n = forgetAllAbout(guildId, interaction.user.id);
-          interaction.reply({ content: `Stopped learning about you and deleted ${n} fact(s).`, ...ephemeral });
+          deleteProfile(guildId, interaction.user.id);
+          interaction.reply({ content: `Stopped learning about you and deleted ${n} fact(s) and your profile.`, ...ephemeral });
         }
         return;
       }

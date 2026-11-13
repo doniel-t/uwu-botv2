@@ -223,6 +223,51 @@ export function getMessagesBefore(guildId: string, channelId: string, beforeMs: 
   return rows.map(fromRow).reverse();
 }
 
+export type MessageSearch = {
+  from: number;
+  to: number;
+  authorIds?: string[];
+  channelIds?: string[];
+  /** every word must appear (case-insensitive substring) */
+  words?: string[];
+  limit: number;
+};
+
+/**
+ * Stored messages in a time range, oldest first. Returns the total match count
+ * so callers can say when results were cut off.
+ */
+export function searchMessages(guildId: string, q: MessageSearch): { messages: StoredMessage[]; total: number } {
+  const where = ["guild_id = ?", "deleted_at IS NULL", "created_at >= ?", "created_at <= ?"];
+  const args: (string | number)[] = [guildId, q.from, q.to];
+  if (q.authorIds?.length) {
+    where.push(`author_id IN (${q.authorIds.map(() => "?").join(",")})`);
+    args.push(...q.authorIds);
+  }
+  if (q.channelIds?.length) {
+    where.push(`channel_id IN (${q.channelIds.map(() => "?").join(",")})`);
+    args.push(...q.channelIds);
+  }
+  for (const w of (q.words ?? []).slice(0, 5)) {
+    where.push("LOWER(content || ' ' || images) LIKE ? ESCAPE '\\'");
+    args.push(`%${w.toLowerCase().replace(/[\\%_]/g, (c) => "\\" + c)}%`);
+  }
+  const db = getV2DB();
+  const total = (db.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where.join(" AND ")}`).get(...args) as { c: number }).c;
+  const rows = db
+    .prepare(`SELECT * FROM messages WHERE ${where.join(" AND ")} ORDER BY created_at ASC LIMIT ?`)
+    .all(...args, q.limit) as Row[];
+  return { messages: rows.map(fromRow), total };
+}
+
+/** Oldest and newest stored message time for a guild (what the log covers). */
+export function storedRange(guildId: string): { first: number | null; last: number | null } {
+  const r = getV2DB()
+    .prepare("SELECT MIN(created_at) AS first, MAX(created_at) AS last FROM messages WHERE guild_id = ?")
+    .get(guildId) as { first: number | null; last: number | null };
+  return r;
+}
+
 export function getMessagesAround(guildId: string, channelId: string, messageId: string, limit: number): StoredMessage[] {
   const anchor = getMessage(guildId, messageId);
   if (!anchor || anchor.channelId !== channelId) return [];

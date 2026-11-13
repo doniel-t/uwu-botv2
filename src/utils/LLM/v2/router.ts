@@ -5,6 +5,7 @@ import { cancelForDeletedTrigger, handleMention } from "./engine";
 import { onEvidenceChanged, scheduleExtraction, startExtractionWorker } from "./facts";
 import { getMessage, markDeleted, markEdited, mergeImages, storeDiscordMessage } from "./messages";
 import { queueCaptions, setOnCaptioned } from "./vision";
+import { startProfileWorker } from "./profiles";
 import { getAISettings } from "./settings";
 
 /**
@@ -18,6 +19,7 @@ export function initMemoryV2(client?: Client): void {
   // Once an image has a caption, facts can be learned from it.
   setOnCaptioned((guildId, channelId) => scheduleExtraction(guildId, channelId));
   startExtractionWorker();
+  startProfileWorker();
 }
 
 export function usesMemoryEngine(guildId: string): boolean {

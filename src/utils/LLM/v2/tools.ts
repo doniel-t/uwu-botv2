@@ -1,7 +1,9 @@
 import { jsonSchema, tool, ToolSet } from "ai";
 import { getOpenRouterKey, logAPICall } from "../utils/api/openrouter";
-import { searchFacts, Fact } from "./facts";
-import { getMessagesAround } from "./messages";
+import { factIsCurrent, searchFacts, Fact } from "./facts";
+import { getMessagesAround, searchMessages, storedRange } from "./messages";
+import { getProfile } from "./profiles";
+import { fmtDate, fmtDateTime, parseDateInput } from "./time";
 import { resolveName } from "./nicknames";
 import { MODELS } from "./settings";
 import { anySignal, timeoutSignal } from "./compat";
@@ -12,6 +14,9 @@ export type ToolContext = {
   refMap: Map<string, string>;
   names: Map<string, string>;
   webEnabled: boolean;
+  /** may the requesting user see this channel? (message search only returns visible channels) */
+  canView: (channelId: string) => boolean;
+  channelName: (channelId: string) => string;
 };
 
 export type ToolTrace = {
@@ -119,36 +124,102 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
   const tools: ToolSet = {
     search_user_memory: tool({
       description:
-        "Look up what you remember about a server member (learned from past chat). Use when someone asks what you know about a person, " +
-        "or when a specific remembered detail would clearly improve the answer. Do NOT call it just to find roast material.",
-      inputSchema: jsonSchema<{ user: string; query: string }>({
+        "Look up what you remember about a server member (facts learned from chat, plus their profile). " +
+        "Use when someone asks what you know about a person, when you need more ammo for a roast of someone not covered in <roast_material>, " +
+        "or when a remembered detail clearly helps. history=true also returns facts that were later replaced.",
+      inputSchema: jsonSchema<{ user: string; query: string; history?: boolean; from?: string; to?: string }>({
         type: "object",
         additionalProperties: false,
         required: ["user", "query"],
         properties: {
           user: { type: "string", description: "Discord user ID, <@id> mention, or a name/nickname" },
-          query: { type: "string", description: "topic to look for, e.g. 'gpu', 'games'; empty for anything" },
+          query: { type: "string", description: "topic to look for, e.g. 'gpu', 'games'; empty string for anything" },
+          history: { type: "boolean", description: "include replaced/expired facts" },
+          from: { type: "string", description: "only facts stated on/after this date (YYYY-MM-DD, 'yesterday', '30d')" },
+          to: { type: "string", description: "only facts stated on/before this date (YYYY-MM-DD)" },
         },
       }),
-      execute: async ({ user, query }) => {
+      execute: async (input: { user: string; query: string; history?: boolean; from?: string; to?: string }) => {
         trace.used.push("search_user_memory");
-        const ids = resolveUser(ctx, user);
-        if (ids.length === 0) return { error: `no server member matches "${user}"` };
-        if (ids.length > 1) return { error: `"${user}" is ambiguous`, candidates: ids.map((id) => ({ id, name: ctx.names.get(id) })) };
-        const facts = searchFacts(ctx.guildId, ids, query);
-        trace.factsReturned.push(...facts);
+        const ids = resolveUser(ctx, input.user);
+        if (ids.length === 0) return { error: `no server member matches "${input.user}"` };
+        if (ids.length > 1) return { error: `"${input.user}" is ambiguous`, candidates: ids.map((id) => ({ id, name: ctx.names.get(id) })) };
+        const from = parseDateInput(input.from) ?? undefined;
+        const to = parseDateInput(input.to, true) ?? undefined;
+        const facts = searchFacts(ctx.guildId, ids, input.query ?? "", 12, { history: !!input.history, from, to });
+        trace.factsReturned.push(...facts.filter((f) => factIsCurrent(f)));
+        const profile = getProfile(ctx.guildId, ids[0]);
         return {
           user_id: ids[0],
+          profile: profile ? profile.profile : null,
           facts: facts.map((f) => ({
             id: f.id,
             fact: `${f.predicate.replace(/_/g, " ")}: ${f.value}`,
             kind: f.kind,
+            status: factIsCurrent(f) ? "current" : f.status === "superseded" ? "replaced by a newer fact" : "expired",
             reported_by: f.reporters.map((r) => (r === f.subjectUserId ? "themself" : `user ${r}`)),
-            last_confirmed: new Date(f.lastConfirmedAt).toISOString().slice(0, 10),
           })),
         };
       },
-    }),
+    } as any),
+
+    search_messages: tool({
+      description:
+        "Search the stored chat log of this server by date/time range, optionally filtered by author, keywords and channel. " +
+        "Use for questions like \"what did Dani say yesterday?\", \"what happened on 2026-08-04?\", \"when did Serg first mention his new job?\". " +
+        "Returns at most 40 messages, oldest first. Dates are in the server's timezone. The log only covers what the bot has stored (see coverage in the result).",
+      inputSchema: jsonSchema<{ from: string; to?: string; user?: string; query?: string; channel?: string; limit?: number }>({
+        type: "object",
+        additionalProperties: false,
+        required: ["from"],
+        properties: {
+          from: { type: "string", description: "start: YYYY-MM-DD, 'YYYY-MM-DD HH:MM', 'today', 'yesterday' or '7d'" },
+          to: { type: "string", description: "end (inclusive; a date means the end of that day). Default: end of the 'from' day for dates, otherwise now" },
+          user: { type: "string", description: "only messages by this user (ID, mention or name/nickname)" },
+          query: { type: "string", description: "keywords that must all appear" },
+          channel: { type: "string", description: "only this channel (ID, or 'this' for the current channel)" },
+          limit: { type: "integer", minimum: 1, maximum: 40 },
+        },
+      }),
+      execute: async (input: { from: string; to?: string; user?: string; query?: string; channel?: string; limit?: number }) => {
+        trace.used.push("search_messages");
+        const from = parseDateInput(input.from);
+        if (from == null) return { error: `can't read the date "${input.from}"` };
+        const fromText = input.from.trim();
+        const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(fromText) || /^(today|yesterday)$/i.test(fromText);
+        const to = parseDateInput(input.to, true) ?? (dateOnly ? (parseDateInput(fromText, true) as number) : Date.now());
+        let authorIds: string[] | undefined;
+        if (input.user) {
+          authorIds = resolveUser(ctx, input.user);
+          if (authorIds.length === 0) return { error: `no server member matches "${input.user}"` };
+        }
+        const channelIds = input.channel
+          ? [input.channel.trim() === "this" ? ctx.channelId : input.channel.replace(/[<#>]/g, "").trim()]
+          : undefined;
+        const words = (input.query ?? "")
+          .split(/\s+/)
+          .map((w) => w.trim())
+          .filter((w) => w.length >= 2);
+        const limit = Math.min(Math.max(input.limit ?? 30, 1), 40);
+
+        // Over-fetch, then drop channels the requester can't see.
+        const res = searchMessages(ctx.guildId, { from, to, authorIds, channelIds, words, limit: limit * 3 });
+        const visible = res.messages.filter((m) => ctx.canView(m.channelId)).slice(0, limit);
+        const range = storedRange(ctx.guildId);
+        return {
+          range: `${fmtDateTime(from)} to ${fmtDateTime(to)}`,
+          coverage: range.first ? `stored messages exist from ${fmtDate(range.first)} to ${fmtDate(range.last!)}` : "nothing stored yet",
+          total_matches: res.total,
+          returned: visible.length,
+          messages: visible.map((m) => ({
+            time: fmtDateTime(m.createdAt),
+            channel: `#${ctx.channelName(m.channelId)}`,
+            author: m.isOwnBot ? "you (the bot)" : `${m.authorName} [user ${m.authorId}]`,
+            text: [m.content, ...m.images.filter((i) => i.caption).map((i) => `[image: ${i.caption}]`)].join(" ").slice(0, 400),
+          })),
+        };
+      },
+    } as any),
 
     get_conversation_context: tool({
       description:
@@ -162,7 +233,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
           limit: { type: "integer", minimum: 2, maximum: 20 },
         },
       }),
-      execute: async ({ message, limit }) => {
+      execute: async ({ message, limit }: { message: string; limit?: number }) => {
         trace.used.push("get_conversation_context");
         const id = ctx.refMap.get(message.trim()) ?? message.trim();
         const msgs = getMessagesAround(ctx.guildId, ctx.channelId, id, Math.min(limit ?? 10, 20));
@@ -172,7 +243,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
             id: m.messageId,
             author: m.isOwnBot ? "you (the bot)" : `${m.authorName} [user ${m.authorId}]`,
             reply_to: m.replyToMessageId,
-            time: new Date(m.createdAt).toISOString(),
+            time: fmtDateTime(m.createdAt),
             text: m.content.slice(0, 500),
           })),
         };
@@ -191,7 +262,7 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         required: ["query"],
         properties: { query: { type: "string", description: "a concise web search query" } },
       }),
-      execute: async ({ query }, { abortSignal }) => {
+      execute: async ({ query }: { query: string }, { abortSignal }: { abortSignal?: AbortSignal }) => {
         trace.used.push("web_search");
         if (trace.webSearches >= MAX_WEB_SEARCHES) return { ok: false, error: "search limit for this reply reached; answer with what you have" };
         trace.webSearches++;

@@ -30,6 +30,8 @@ export type Fact = {
   expiresAt: number | null;
   evidenceCount: number;
   reporters: string[];
+  /** active | superseded | retracted (expired facts keep "active" but expiresAt < now) */
+  status: string;
 };
 
 type FactRow = {
@@ -45,6 +47,7 @@ type FactRow = {
   expires_at: number | null;
   evidence_count: number;
   reporters: string | null;
+  status: string;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -69,6 +72,7 @@ function fromRow(r: FactRow): Fact {
     expiresAt: r.expires_at,
     evidenceCount: r.evidence_count,
     reporters: r.reporters ? r.reporters.split(",") : [],
+    status: r.status,
   };
 }
 
@@ -78,7 +82,7 @@ export function getActiveFacts(guildId: string, subjectIds: string[]): Fact[] {
   const rows = getV2DB()
     .prepare(
       `${FACT_SELECT}
-       WHERE f.guild_id = ? AND f.subject_user_id IN (${ph}) AND f.status = 'active'
+       WHERE f.guild_id = ? AND f.subject_user_id IN (${ph}) AND f.status = 'active' AND f.kind != 'temporary_state'
          AND (f.expires_at IS NULL OR f.expires_at > ?)
        GROUP BY f.id ORDER BY f.last_confirmed_at DESC`
     )
@@ -125,9 +129,17 @@ export function onEvidenceChanged(guildId: string, messageId: string): void {
 // Retrieval with relevance gating and a repetition penalty
 // ---------------------------------------------------------------------------
 
-const ROAST_RE = /\b(roast|flame|insult|diss|cook|destroy|mock|bully|clown|ratio)\w*/i;
+const ROAST_RE =
+  /\b(roast|flame|insult|diss|cook|destroy|mock|bully|clown|ratio|humble|dunk|burn|rip into|clap|ether|violate|obliterate|zerstör|beleidig|fertig\s?mach)\w*/i;
 
-export type RankedFact = Fact & { relevance: number; background: boolean };
+export function isRoastRequest(instruction: string): boolean {
+  return ROAST_RE.test(instruction);
+}
+
+/** `ammo`: picked as roast material about the target (not because it matches the topic). */
+export type RankedFact = Fact & { relevance: number; ammo: boolean };
+
+const ROAST_AMMO = 4;
 
 function recentlyUsed(guildId: string, channelId: string): Set<number> {
   const rows = getV2DB()
@@ -156,21 +168,30 @@ export function selectFactsForReply(
     const words = contentWords(`${f.predicate.replace(/_/g, " ")} ${f.value}`);
     let relevance = 0;
     for (const w of words) if (topic.has(w)) relevance++;
-    let score = relevance * 2 + (f.kind === "self_report" ? 1 : f.kind === "curated_seed" ? 0.6 : 0.3);
+    let score = relevance * 2 + (f.kind === "self_report" ? 1 : f.kind === "curated_seed" ? 0.6 : 0.5);
     score += Math.min(f.evidenceCount, 3) * 0.2;
     if (used.has(f.id) && relevance < 2) score -= 3;
-    return { ...f, relevance, score, background: false };
+    return { ...f, relevance, score, ammo: false };
   });
 
-  const relevant = scored.filter((f) => f.relevance > 0 && f.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
-  if (relevant.length > 0) return relevant;
+  if (isRoastRequest(instruction)) {
+    // Roast: hand over the target's best material. Topical facts first, then a
+    // shuffled mix of the rest so repeated roasts don't reuse the same fact.
+    const ammo = scored
+      .filter((f) => targetIds.includes(f.subjectUserId))
+      .map((f) => ({ ...f, rank: f.score + (f.relevance > 0 ? 5 : 0) + Math.random() * 1.5 }))
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, ROAST_AMMO)
+      .map(({ rank, ...f }) => ({ ...f, ammo: true }));
+    // Plus anything clearly on-topic about other people involved.
+    const extra = scored
+      .filter((f) => !targetIds.includes(f.subjectUserId) && f.relevance > 0 && f.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+    return [...ammo, ...extra];
+  }
 
-  // A roast with nothing topical may get ONE optional callback about the target.
-  if (!ROAST_RE.test(instruction)) return [];
-  const callback = scored
-    .filter((f) => targetIds.includes(f.subjectUserId) && !used.has(f.id) && f.kind !== "temporary_state")
-    .sort((a, b) => b.score - a.score + (Math.random() - 0.5))[0];
-  return callback ? [{ ...callback, background: true }] : [];
+  return scored.filter((f) => f.relevance > 0 && f.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
 /** Record which supplied facts actually made it into the reply. */
@@ -187,8 +208,39 @@ export function recordFactUsage(guildId: string, channelId: string, facts: Fact[
   return usedIds;
 }
 
-export function searchFacts(guildId: string, subjectIds: string[], query: string, limit = 8): Fact[] {
-  const facts = getActiveFacts(guildId, subjectIds);
+/**
+ * Every fact ever learned about these users (current, replaced and expired),
+ * optionally limited to facts stated within [from, to]. Newest first.
+ */
+export function getFactHistory(guildId: string, subjectIds: string[], from?: number, to?: number): Fact[] {
+  if (subjectIds.length === 0) return [];
+  const ph = subjectIds.map(() => "?").join(",");
+  const rows = getV2DB()
+    .prepare(
+      `${FACT_SELECT}
+       WHERE f.guild_id = ? AND f.subject_user_id IN (${ph}) AND f.status != 'retracted'
+         AND f.last_confirmed_at >= ? AND f.first_seen_at <= ?
+       GROUP BY f.id ORDER BY f.last_confirmed_at DESC`
+    )
+    .all(guildId, ...subjectIds, from ?? 0, to ?? Number.MAX_SAFE_INTEGER) as FactRow[];
+  return rows.map(fromRow);
+}
+
+export function factIsCurrent(f: Fact, now = Date.now()): boolean {
+  return f.status === "active" && (f.expiresAt == null || f.expiresAt > now);
+}
+
+export function searchFacts(
+  guildId: string,
+  subjectIds: string[],
+  query: string,
+  limit = 8,
+  opts: { history?: boolean; from?: number; to?: number } = {}
+): Fact[] {
+  const facts =
+    opts.history || opts.from != null || opts.to != null
+      ? getFactHistory(guildId, subjectIds, opts.from, opts.to)
+      : getActiveFacts(guildId, subjectIds);
   const q = contentWords(query);
   if (q.size === 0) return facts.slice(0, limit);
   return facts
@@ -258,20 +310,33 @@ const candidateSchema = jsonSchema<{ facts: Candidate[] }>({
   },
 });
 
-const EXTRACTOR_SYSTEM = `You extract durable personal facts about members of a Discord server from chat logs.
+const EXTRACTOR_SYSTEM = `You extract lasting personal facts about members of a Discord friend group. A sarcastic bot uses them to roast people, so the most valuable facts are good roast material.
 
 Rules:
 - Only extract facts stated in messages marked [EXTRACT]. [CONTEXT] messages are only there to resolve references.
 - Every fact needs: the source message ref, the Discord user ID it is ABOUT, a snake_case predicate, a value, and an exact quote copied from the source message.
 - The subject must be a user ID that appears in the log (the author, someone they mention, reply to, or a name annotated with [= ... user ID]). Never guess IDs.
-- classification:
-  - self_report: the author states something about themself ("I bought a 4070").
-  - third_party_claim: the author states something about someone else ("Alice owns a 4090"). The subject is the other person.
-  - temporary_state: short-lived ("I'm sick today", "at the airport").
-  - correction: the author corrects an earlier fact about themself ("I sold the 4070, have a 5070 now"). Set supersedes_fact_id when a known fact is replaced.
-  - joke: sarcasm, irony, hyperbole, memes, roleplay ("I'm literally a toaster"). When unsure, use joke.
+
+What to extract (lasting things only):
+- what they're bad at, their L's and fails, embarrassing confessions, cringe things they did
+- takes they stand by, obsessions, hyperfixations, guilty pleasures, what they hate
+- habits and quirks: sleep schedule, diet, spending, energy drinks, hours in a game, being late
+- games, mains, ranks/skill level, setups and gear, hobbies, job or studies, where they live
+- flexes they're proud of (great to deflate) and insecurities they joke about themselves
+- what friends say about them (third_party_claim)
+
+Never extract anything temporary or time-bound: moods, being sick, "today", "this week", "right now", where they currently are, plans, schedules, deadlines.
+Values never contain dates or relative times. Write the lasting version ("plays bass", "mains Yasuo", "hardstuck silver"), not "started bass last month".
+
+classification:
+- self_report: the author states something about themself ("I bought a 4070").
+- third_party_claim: the author states something about someone else ("Alice is hardstuck gold"). The subject is the other person.
+- correction: the author corrects an earlier fact about themself ("sold the 4070, have a 5070 now"). Set supersedes_fact_id when a known fact is replaced.
+- joke: sarcasm, irony, hyperbole, memes, roleplay ("I'm literally a toaster"). When unsure, use joke.
+- (temporary_state exists only for compatibility. Don't use it; skip temporary things instead.)
+
 - Quoting someone else ("Bob said 'I bought a 4090'") is NOT a self-report by the author.
-- Skip opinions about media/topics unless they reveal a stable preference (likes/dislikes), skip greetings, questions, and anything about the bot.
+- Skip greetings, questions and anything about the bot.
 - Reuse predicates from the known facts list when the meaning matches.
 - "[image: ...]" is an automatic description of an image the author posted. Only extract a fact from an image when the author's own text says it is theirs or about them ("my new setup", "finally hit diamond"); then the quote may come from the description. Memes and random pictures say nothing about the poster.
 - Most batches contain zero facts. Return {"facts": []} when nothing qualifies.`;
@@ -309,6 +374,8 @@ export function validateCandidates(
     const message = refToMessage.get(c.source_ref);
     if (!message || message.isOwnBot) continue;
     if (c.classification === "joke") continue;
+    // No temporary or time-bound facts at all.
+    if (c.classification === "temporary_state") continue;
 
     const allowedSubjects = new Set<string>([message.authorId, ...message.mentionedUserIds]);
     message.nameRefs.forEach((r) => r.confidence === "high" && r.userId && allowedSubjects.add(r.userId));
@@ -334,10 +401,7 @@ export function validateCandidates(
     const aboutSelf = c.subject_user_id === message.authorId;
     let kind: FactKind;
     if (c.classification === "third_party_claim" || !aboutSelf) {
-      if (c.classification === "temporary_state") continue; // hearsay about someone's mood: not worth keeping
       kind = "third_party_claim";
-    } else if (c.classification === "temporary_state") {
-      kind = "temporary_state";
     } else {
       kind = "self_report";
     }
@@ -358,10 +422,13 @@ export function validateCandidates(
 
 export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof validateCandidates>): number {
   const db = getV2DB();
-  const now = Date.now();
   let stored = 0;
+  // Oldest statements first, so "later wins" holds within one batch too.
+  const ordered = [...facts].sort((a, b) => a.message.createdAt - b.message.createdAt);
   db.transaction(() => {
-    for (const f of facts) {
+    for (const f of ordered) {
+      // A fact's time is when it was SAID, not when we processed it (matters for /backfill).
+      const saidAt = f.message.createdAt;
       const key = `${f.predicate}:${normalizeQuote(f.value)}`;
       const existing = db
         .prepare(
@@ -374,17 +441,47 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
         factId = existing.id;
         const upgrade = existing.kind === "third_party_claim" && f.kind === "self_report";
         db.prepare(
-          `UPDATE facts SET last_confirmed_at = ?, kind = CASE WHEN ? THEN 'self_report' ELSE kind END,
-             expires_at = CASE WHEN ? THEN NULL ELSE expires_at END WHERE id = ?`
-        ).run(now, upgrade ? 1 : 0, upgrade ? 1 : 0, factId);
+          `UPDATE facts SET
+             first_seen_at = MIN(first_seen_at, ?),
+             last_confirmed_at = MAX(last_confirmed_at, ?),
+             kind = CASE WHEN ? THEN 'self_report' ELSE kind END,
+             expires_at = CASE WHEN ? THEN NULL
+                               WHEN expires_at IS NULL THEN NULL
+                               ELSE MAX(expires_at, ?) END
+           WHERE id = ?`
+        ).run(saidAt, saidAt, upgrade ? 1 : 0, upgrade ? 1 : 0, saidAt + ttlFor(f.kind), factId);
       } else {
-        const expires = f.kind === "temporary_state" ? now + TEMP_STATE_TTL : f.kind === "third_party_claim" ? now + HEARSAY_TTL : null;
+        const ttl = ttlFor(f.kind);
+        const expires = ttl > 0 ? saidAt + ttl : null;
+
+        // Single-valued self-reports: the most recently SAID value wins, whatever the processing order.
+        let status: "active" | "superseded" = "active";
+        let supersedesId = f.supersedes_fact_id;
+        if (f.kind === "self_report" && !f.multi_valued) {
+          const newer = db
+            .prepare(
+              `SELECT id FROM facts WHERE guild_id = ? AND subject_user_id = ? AND predicate = ? AND status = 'active'
+                 AND multi_valued = 0 AND kind = 'self_report' AND last_confirmed_at > ? LIMIT 1`
+            )
+            .get(guildId, f.subject_user_id, f.predicate, saidAt) as { id: number } | undefined;
+          if (newer) {
+            status = "superseded"; // an older statement arriving late (e.g. backfill)
+            supersedesId = null;
+          }
+        }
+        if (supersedesId != null) {
+          const target = db.prepare("SELECT last_confirmed_at FROM facts WHERE guild_id = ? AND id = ?").get(guildId, supersedesId) as
+            | { last_confirmed_at: number }
+            | undefined;
+          if (!target || target.last_confirmed_at > saidAt) supersedesId = null;
+        }
+
         factId = Number(
           db
             .prepare(
               `INSERT INTO facts (guild_id, subject_user_id, predicate, value, normalized_key, multi_valued, kind, status,
                  source_kind, first_seen_at, last_confirmed_at, expires_at, supersedes_fact_id, extractor_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'extracted', ?, ?, ?, ?, ?)`
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'extracted', ?, ?, ?, ?, ?)`
             )
             .run(
               guildId,
@@ -394,24 +491,26 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
               key,
               f.multi_valued ? 1 : 0,
               f.kind,
-              now,
-              now,
+              status,
+              saidAt,
+              saidAt,
               expires,
-              f.supersedes_fact_id,
+              supersedesId,
               EXTRACTOR_VERSION
             ).lastInsertRowid
         );
         stored++;
 
-        // Self-reported single-valued facts replace older values of the same predicate.
-        if (f.kind === "self_report" && !f.multi_valued) {
-          db.prepare(
-            `UPDATE facts SET status = 'superseded' WHERE guild_id = ? AND subject_user_id = ? AND predicate = ?
-               AND id != ? AND status = 'active' AND multi_valued = 0`
-          ).run(guildId, f.subject_user_id, f.predicate, factId);
-        }
-        if (f.supersedes_fact_id != null) {
-          db.prepare("UPDATE facts SET status = 'superseded' WHERE guild_id = ? AND id = ?").run(guildId, f.supersedes_fact_id);
+        if (status === "active") {
+          if (f.kind === "self_report" && !f.multi_valued) {
+            db.prepare(
+              `UPDATE facts SET status = 'superseded' WHERE guild_id = ? AND subject_user_id = ? AND predicate = ?
+                 AND id != ? AND status = 'active' AND multi_valued = 0 AND last_confirmed_at <= ?`
+            ).run(guildId, f.subject_user_id, f.predicate, factId, saidAt);
+          }
+          if (supersedesId != null) {
+            db.prepare("UPDATE facts SET status = 'superseded' WHERE guild_id = ? AND id = ?").run(guildId, supersedesId);
+          }
         }
       }
 
@@ -419,9 +518,25 @@ export function storeValidatedFacts(guildId: string, facts: ReturnType<typeof va
         `INSERT OR IGNORE INTO fact_evidence (fact_id, guild_id, message_id, message_revision, reporter_user_id, evidence_quote, evidence_type)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(factId, guildId, f.message.messageId, f.message.revision, f.message.authorId, f.evidence_quote.slice(0, 300), f.kind);
+      touchedSubjects.add(`${guildId}:${f.subject_user_id}`);
     }
   })();
   return stored;
+}
+
+function ttlFor(kind: FactKind): number {
+  return kind === "temporary_state" ? TEMP_STATE_TTL : kind === "third_party_claim" ? HEARSAY_TTL : 0;
+}
+
+/** guild:user pairs whose facts changed since the last drain (drives profile refreshes). */
+const touchedSubjects = new Set<string>();
+export function drainTouchedSubjects(): { guildId: string; userId: string }[] {
+  const out = [...touchedSubjects].map((k) => {
+    const [guildId, userId] = k.split(":");
+    return { guildId, userId };
+  });
+  touchedSubjects.clear();
+  return out;
 }
 
 /**

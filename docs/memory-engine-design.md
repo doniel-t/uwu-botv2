@@ -14,10 +14,13 @@ Code lives in `src/utils/LLM/v2/` and the `/aiconfig` (named so it does not clas
 | `messages.ts` | immediate message storage with author, reply, mention, and nickname reference IDs |
 | `responseQueue.ts` | FIFO per guild and channel or thread, 3 concurrent, per-user and per-channel limits, 45 s timeout |
 | `context.ts` | reply chain, recent window, roster, target resolution, ID-tagged transcript, bot replies as assistant turns |
-| `facts.ts` | extraction per channel 2 s after it goes quiet (at most 8 s after the first new message; noise like "lol" is skipped without a model call; 5-minute sweep as a safety net), validation, supersession, edit/delete retraction, relevance-gated retrieval with repetition penalty |
+| `facts.ts` | facts are dated by when the message was **sent** (first/last said); the most recently said value wins even if processed out of order (backfill); expiry counts from the send date; replaced and expired facts stay as history. extraction per channel 2 s after it goes quiet (at most 8 s after the first new message; noise like "lol" is skipped without a model call; 5-minute sweep as a safety net), validation, supersession, edit/delete retraction, relevance-gated retrieval with repetition penalty |
 | `vision.ts` | captions every posted image (attachments and link previews such as Tenor GIFs) with a cheap vision model and stores the caption with the message; sends the images on the ping and the replied-to message to the reply model directly. Facts come from an image only when the poster's own text claims it ("my new setup") |
 | `backfill.ts` | owner-only `/backfill since:<YYYY-MM-DD or 90d> [channel] [images]`: scans Discord history into `memory-v2.db`, DMs the owner counts and a cost estimate with Confirm/Cancel buttons, then extracts facts with progress updates and a Stop button in the DM. Stops by itself above 3x the estimate and resumes confirmed jobs after a restart. Owner ID: `BACKFILL_OWNER_ID` (default `222398053703876628`) |
-| `tools.ts` | `search_user_memory`, `get_conversation_context`, `web_search` (OpenRouter Responses API with `openrouter:web_search`) |
+| `tools.ts` | `search_user_memory` (facts with dates, profile, optional history/date range), `search_messages` (stored chat by date range, author, keywords, channel; only channels the requester can see), `get_conversation_context`, `web_search` (OpenRouter Responses API with `openrouter:web_search`) |
+| `profiles.ts` | per-user profile (who, interests, personality, how they talk, running jokes, recent changes) written by the extractor model from current facts and a sample of the user's messages; refreshed in the background when facts change (at most every 30 min per user); shown to the reply model for the people involved and via `/memory profile` |
+| `persona.ts` | the bot's personality (4chan-style sarcasm with hard limits) and the system prompt; edit `PERSONA` to change the tone |
+| `time.ts` | dates in `BOT_TIMEZONE`, "3 months ago" labels, date parsing for tools |
 | `engine.ts`, `router.ts` | reply generation and Discord event wiring |
 
 Environment variables (all optional):

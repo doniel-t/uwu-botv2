@@ -6,12 +6,16 @@ import assert from "assert";
 import { initV2DBAt } from "../src/utils/LLM/v2/db";
 import { allowedTypos, damerauLevenshtein } from "../src/utils/LLM/v2/text";
 import { addNickname, getGuildAliases, listNicknames, makeAlias, refreshAutoAliases, removeNickname, resolveName, resolveNameRefs } from "../src/utils/LLM/v2/nicknames";
-import { getAISettings, updateAISettings } from "../src/utils/LLM/v2/settings";
+import { getAISettings, setUserLearning, updateAISettings } from "../src/utils/LLM/v2/settings";
 import { ResponseQueue } from "../src/utils/LLM/v2/responseQueue";
-import { _setBatchRunnerForTests, getActiveFacts, isWorthExtracting, onEvidenceChanged, scheduleExtraction, selectFactsForReply, storeValidatedFacts, validateCandidates } from "../src/utils/LLM/v2/facts";
+import { _setBatchRunnerForTests, factIsCurrent, getActiveFacts, isWorthExtracting, searchFacts, onEvidenceChanged, scheduleExtraction, selectFactsForReply, storeValidatedFacts, validateCandidates } from "../src/utils/LLM/v2/facts";
 import { getMessage, markExtracted, mergeImages, storeDiscordMessage } from "../src/utils/LLM/v2/messages";
 import { buildContext } from "../src/utils/LLM/v2/context";
 import { activeJobFor, parseSince, startBackfill } from "../src/utils/LLM/v2/backfill";
+import { ago, fmtDate, fmtDateTime, parseDateInput } from "../src/utils/LLM/v2/time";
+import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfileRefreshOnce } from "../src/utils/LLM/v2/profiles";
+import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
+import { searchMessages } from "../src/utils/LLM/v2/messages";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
 
 let passed = 0;
@@ -375,12 +379,15 @@ async function main() {
     assert.deepStrictEqual(jobs, ["chef:self_report", "dentist:third_party_claim"]);
   });
 
-  test("relevance gating: unrelated topics get no facts, roasts get at most one", () => {
+  test("relevance gating outside roasts, ammo about the target in roasts", () => {
     assert.deepStrictEqual(selectFactsForReply(G, CH, [DANIEL], [DANIEL], "what's the weather in berlin", "what's the weather"), []);
     const gpu = selectFactsForReply(G, CH, [DANIEL], [DANIEL], "is a 4070 enough for 1440p", "is a 4070 enough");
-    assert.ok(gpu.length >= 1 && gpu.every((f) => f.subjectUserId === DANIEL));
-    const roast = selectFactsForReply(G, CH, [SERGEJ], [SERGEJ], "roast him", "roast him");
-    assert.ok(roast.length <= 1);
+    assert.ok(gpu.length >= 1 && gpu.every((f) => f.subjectUserId === DANIEL && !f.ammo));
+    // A roast hands over the target's facts even when nothing matches the topic.
+    const roast = selectFactsForReply(G, CH, [SERGEJ, DANIEL], [SERGEJ], "roast him", "roast him");
+    assert.ok(roast.length >= 2 && roast.length <= 4, `got ${roast.length}`);
+    assert.ok(roast.every((f) => f.subjectUserId === SERGEJ && f.ammo), "only the target's facts are ammo");
+    assert.ok(selectFactsForReply(G, CH, [SERGEJ], [SERGEJ], "", "cook this guy").length >= 2, "'cook' counts as a roast");
   });
 
   test("deleting evidence retracts unsupported facts", () => {
@@ -745,6 +752,114 @@ async function main() {
     fx.guild.id = "665991423933547001";
     const res = await startBackfill({ client: fx.client, guild: fx.guild, ownerId: DANIEL, since: Date.now() - 86400000 * 5, includeImages: false });
     assert.ok("error" in res && /Learning is paused/.test(res.error));
+  });
+
+  section("time-aware memory");
+  const TG = "665991423933547100";
+  const D = 86400000;
+  const sayAt = (authorId: string, content: string, at: number) => {
+    clock = at - 1000; // fakeMessage adds 1s
+    const m: any = fakeMessage(authorId, content);
+    m.guild = { ...guild, id: TG };
+    m.guildId = TG;
+    storeDiscordMessage(m, { ownBotId: BOT });
+    return getMessage(TG, m.id)!;
+  };
+  const job = (msg: any, value: string, quote: string, cls = "self_report") =>
+    ({ source_ref: "x", subject_user_id: msg.authorId, predicate: "job", value, classification: cls, multi_valued: false, evidence_quote: quote, supersedes_fact_id: null } as any);
+  const storeOne = (msg: any, cand: any) =>
+    storeValidatedFacts(TG, validateCandidates(TG, [cand], new Map([["x", msg]]), new Set(["x"]), new Map()));
+
+  test("facts are dated by when they were said, not when processed", () => {
+    const said = Date.now() - 100 * D;
+    const m = sayAt(DANIEL, "I work as a barista now", said);
+    storeOne(m, job(m, "barista", "I work as a barista"));
+    const f = getActiveFacts(TG, [DANIEL]).find((x) => x.value === "barista")!;
+    assert.strictEqual(f.firstSeenAt, said);
+    assert.strictEqual(f.lastConfirmedAt, said);
+  });
+
+  test("out-of-order backfill: the most recently SAID value wins", () => {
+    const newer = sayAt(SERGEJ, "I'm a nurse now", Date.now() - 30 * D);
+    const older = sayAt(SERGEJ, "I work as a plumber", Date.now() - 90 * D);
+    storeOne(newer, job(newer, "nurse", "I'm a nurse now")); // processed first
+    storeOne(older, job(older, "plumber", "I work as a plumber")); // older statement arrives late
+    const current = getActiveFacts(TG, [SERGEJ]).filter((f) => f.predicate === "job").map((f) => f.value);
+    assert.deepStrictEqual(current, ["nurse"]);
+    const history = searchFacts(TG, [SERGEJ], "", 10, { history: true }).map((f) => `${f.value}:${factIsCurrent(f) ? "current" : f.status}`);
+    assert.deepStrictEqual(history.sort(), ["nurse:current", "plumber:superseded"]);
+  });
+
+  test("temporary / time-bound facts are never learned", () => {
+    const m = sayAt(JASON, "I'm sick today ugh", Date.now());
+    const stored = storeOne(m, { ...job(m, "sick", "I'm sick today", "temporary_state"), predicate: "health_state" });
+    assert.strictEqual(stored, 0);
+    assert.strictEqual(searchFacts(TG, [JASON], "", 10, { history: true }).length, 0);
+  });
+
+  test("fact date-range filter", () => {
+    const inRange = searchFacts(TG, [DANIEL, SERGEJ], "", 10, { from: Date.now() - 95 * D, to: Date.now() - 80 * D });
+    assert.deepStrictEqual(inRange.map((f) => f.value), ["plumber"]);
+  });
+
+  test("parseDateInput", () => {
+    const now = Date.UTC(2026, 10, 13, 12, 0);
+    const d = parseDateInput("2026-08-04", false, now)!;
+    assert.strictEqual(fmtDateTime(d), "2026-08-04 00:00");
+    assert.strictEqual(fmtDateTime(parseDateInput("2026-08-04", true, now)!), "2026-08-04 23:59");
+    assert.strictEqual(fmtDate(parseDateInput("yesterday", false, now)!), "2026-11-12");
+    assert.strictEqual(parseDateInput("7d", false, now), now - 7 * D);
+    assert.strictEqual(fmtDateTime(parseDateInput("2026-08-04 14:30", false, now)!), "2026-08-04 14:30");
+    assert.strictEqual(parseDateInput("garbage"), null);
+    assert.strictEqual(ago(now - 40 * D, now), "6 weeks ago");
+  });
+
+  test("searchMessages by date, author and keyword", () => {
+    const base = Date.now() - 50 * D;
+    sayAt(DANIEL, "ranked was rigged today", base);
+    sayAt(SERGEJ, "skill issue tbh", base + 60_000);
+    sayAt(DANIEL, "new keyboard arrived", base + D);
+    const day = searchMessages(TG, { from: base - 1000, to: base + D - 1000, limit: 40 });
+    assert.deepStrictEqual(day.messages.map((m) => m.content), ["ranked was rigged today", "skill issue tbh"]);
+    const byDani = searchMessages(TG, { from: base - 1000, to: base + 2 * D, authorIds: [DANIEL], limit: 40 });
+    assert.strictEqual(byDani.total, 2);
+    const kw = searchMessages(TG, { from: 0, to: Date.now(), words: ["keyboard"], limit: 40 });
+    assert.deepStrictEqual(kw.messages.map((m) => m.content), ["new keyboard arrived"]);
+    const pct = searchMessages(TG, { from: 0, to: Date.now(), words: ["100%"], limit: 40 });
+    assert.strictEqual(pct.total, 0, "% is matched literally");
+  });
+
+  section("profiles");
+  test("changed facts mark profiles dirty; refresh writes them", async () => {
+    updateAISettings(TG, { learning: true }, DANIEL);
+    const prompts: string[] = [];
+    _setProfileGeneratorForTests(async (prompt) => {
+      prompts.push(prompt);
+      return "Who: nurse since Oct 2026 (was a plumber).\nTalks like: dry, short.";
+    });
+    // facts were stored above -> touched subjects exist
+    await runProfileRefreshOnce();
+    const p = getProfile(TG, SERGEJ);
+    assert.ok(p && p.profile.startsWith("Who: nurse"), JSON.stringify(p));
+    const sergPrompt = prompts.find((x) => x.includes(`[user ${SERGEJ}]`) && x.includes("nurse"))!;
+    assert.ok(sergPrompt, prompts.join("\n=====\n"));
+    assert.ok(sergPrompt.includes("- job: nurse (said by themself)"), sergPrompt);
+    assert.ok(!/\d{4}-\d{2}-\d{2}|\bago\b/.test(sergPrompt), "no dates in profile input");
+    const factsSection = sergPrompt.slice(sergPrompt.indexOf("<facts>"), sergPrompt.indexOf("</facts>"));
+    assert.ok(!factsSection.includes("plumber"), "replaced facts are not listed as current facts");
+  });
+
+  test("opt-out removes the profile and stops regeneration", async () => {
+    setUserLearning(TG, SERGEJ, false);
+    assert.strictEqual(await regenerateProfile(TG, SERGEJ), null);
+    assert.strictEqual(getProfile(TG, SERGEJ), null);
+    setUserLearning(TG, SERGEJ, true);
+  });
+
+  test("persona prompt has the new tone and tools", () => {
+    const sp = buildSystemPrompt({ botId: BOT, now: "now", timezone: "Europe/Berlin", webEnabled: true });
+    assert.ok(sp.includes("4chan") && sp.includes("search_messages") && sp.includes("<profiles>") && sp.includes("Hard limits"));
+    assert.ok(!buildSystemPrompt({ botId: BOT, now: "now", timezone: "x", webEnabled: false }).includes("web_search:"));
   });
 
   await chain;

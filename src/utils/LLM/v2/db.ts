@@ -168,6 +168,31 @@ const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE user_profiles (
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        profile TEXT,
+        fact_count INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        dirty INTEGER NOT NULL DEFAULT 0,
+        dirty_since INTEGER,
+        PRIMARY KEY (guild_id, user_id)
+      );
+      CREATE INDEX idx_v2_profiles_dirty ON user_profiles(dirty, dirty_since);
+      CREATE INDEX idx_v2_facts_time ON facts(guild_id, subject_user_id, last_confirmed_at);
+    `,
+  },
+  {
+    // No temporary facts any more; rewrite existing profiles without dates.
+    version: 5,
+    sql: `
+      UPDATE facts SET status = 'retracted' WHERE kind = 'temporary_state';
+      UPDATE user_profiles SET dirty = 1, dirty_since = 0, updated_at = 0 WHERE profile IS NOT NULL;
+    `,
+  },
 ];
 
 export function getV2DB(): Database.Database {
