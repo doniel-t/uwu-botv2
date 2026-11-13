@@ -29,37 +29,52 @@ class Backfill extends NormalCommandClass {
   ];
 
   async reply(interaction: DiscordJS.ChatInputCommandInteraction): Promise<void> {
-    const ephemeral = EPHEMERAL;
-    if (interaction.user.id !== BACKFILL_OWNER_ID) {
-      await interaction.reply({ content: "Only the bot owner can run backfills.", ...ephemeral });
+    console.log(`[Backfill] /backfill by ${interaction.user.id} in guild ${interaction.guildId}`);
+    // Acknowledge first: Discord shows "did not respond" after 3 seconds.
+    try {
+      await interaction.deferReply(EPHEMERAL);
+    } catch (err) {
+      console.error("[Backfill] Could not acknowledge the command:", err);
       return;
     }
-    if (!interaction.guild) {
-      await interaction.reply({ content: "Run this in the server you want to backfill.", ...ephemeral });
-      return;
-    }
+    const answer = (content: string) =>
+      interaction.editReply({ content }).catch((err) => console.error("[Backfill] Could not edit reply:", err));
 
-    const raw = optString(interaction, "since")!;
-    const since = parseSince(raw);
-    if (since == null) {
-      await interaction.reply({ content: `Couldn't read "${raw}". Use a date like 2026-08-01 or days like 90d.`, ...ephemeral });
-      return;
-    }
-    if (since >= Date.now()) {
-      await interaction.reply({ content: "That date is in the future.", ...ephemeral });
-      return;
-    }
+    try {
+      if (interaction.user.id !== BACKFILL_OWNER_ID) {
+        await answer("Only the bot owner can run backfills.");
+        return;
+      }
+      if (!interaction.guild) {
+        await answer("Run this in the server you want to backfill.");
+        return;
+      }
 
-    await interaction.reply({ content: "Scanning history. I'll DM you the cost estimate to confirm.", ...ephemeral });
-    const res = await startBackfill({
-      client: interaction.client,
-      guild: interaction.guild,
-      ownerId: interaction.user.id,
-      since,
-      channelId: optChannelId(interaction, "channel") ?? undefined,
-      includeImages: optBoolean(interaction, "images") ?? false,
-    });
-    if ("error" in res) await interaction.editReply({ content: res.error });
+      const raw = optString(interaction, "since") ?? "";
+      const since = parseSince(raw);
+      if (since == null) {
+        await answer(`Couldn't read "${raw}". Use a date like 2026-08-01 or days like 90d.`);
+        return;
+      }
+      if (since >= Date.now()) {
+        await answer("That date is in the future.");
+        return;
+      }
+
+      await answer("Scanning history. I'll DM you the cost estimate to confirm.");
+      const res = await startBackfill({
+        client: interaction.client,
+        guild: interaction.guild,
+        ownerId: interaction.user.id,
+        since,
+        channelId: optChannelId(interaction, "channel") ?? undefined,
+        includeImages: optBoolean(interaction, "images") ?? false,
+      });
+      if ("error" in res) await answer(res.error);
+    } catch (err) {
+      console.error("[Backfill] Failed:", err);
+      await answer(`Backfill failed: ${(err as Error)?.message ?? err}`);
+    }
   }
 }
 
