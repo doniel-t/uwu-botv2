@@ -8,7 +8,7 @@ import { canManageGuild } from "../utils/LLM/v2/permissions";
 import { CHAT_MODEL } from "../utils/LLM/utils/api/openrouter";
 
 class AI extends NormalCommandClass {
-  name = "ai";
+  name = "aiconfig";
   description = "Configure the AI reply engine";
   options = [
     {
@@ -104,7 +104,7 @@ class AI extends NormalCommandClass {
         interaction.reply({
           content:
             mode === "memory"
-              ? "Switched to the **memory** engine. I'll start keeping track of who said what, learn facts from chat, and use nicknames. `/ai engine mode:legacy` switches back; nothing is deleted."
+              ? "Switched to the **memory** engine. I'll start keeping track of who said what, learn facts from chat, and use nicknames. `/aiconfig engine mode:legacy` switches back; nothing is deleted."
               : "Switched back to the **legacy** engine. Memory-engine data is kept, and learning is paused until you switch again.",
         });
         return;

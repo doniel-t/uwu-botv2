@@ -4,7 +4,7 @@ Status: implemented (first version), 2026-11-13. Legacy remains the default; sta
 
 ## Implementation notes
 
-Code lives in `src/utils/LLM/v2/` and the `/ai`, `/memory`, `/nickname` commands in `src/Commands/`. Offline tests: `npx ts-node --transpile-only scripts/test-memory-v2.ts`. This needs the same Node major version that `better-sqlite3` was built for (Node 20 in Docker).
+Code lives in `src/utils/LLM/v2/` and the `/aiconfig` (named so it does not clash with the `ai` shortcut of `/ask_ai`), `/memory`, `/nickname` commands in `src/Commands/`. Offline tests: `npx ts-node --transpile-only scripts/test-memory-v2.ts`. This needs the same Node major version that `better-sqlite3` was built for (Node 20 in Docker).
 
 | File | Role |
 | --- | --- |
@@ -311,10 +311,10 @@ An alternative is direct OpenAI Responses with `web_search`. Keep message contex
 ## Slash commands and compatibility
 
 ```text
-/ai engine mode:legacy
-/ai engine mode:memory
-/ai status
-/ai web mode:auto|off
+/aiconfig engine mode:legacy
+/aiconfig engine mode:memory
+/aiconfig status
+/aiconfig web mode:auto|off
 /memory show [user]
 /memory forget fact:<id>
 /memory learning enabled:true|false
@@ -323,7 +323,7 @@ An alternative is direct OpenAI Responses with `web_search`. Keep message contex
 /nickname list [user]
 ```
 
-`/ai engine` and `/ai web` require Manage Guild (also check permission at execution). Persist settings per guild through the existing settings mechanism, with absent engine setting resolving to `legacy`. `/ai status` reports engine, model, web availability, learning state, and pending count without exposing facts. Memory views and personal deletion responses are ephemeral; default `show` to self and restrict other-user inspection to authorized moderators. Self-service forgetting/learning changes affect only the invoking user's memories; moderator operations require explicit targets and permissions.
+`/aiconfig engine` and `/aiconfig web` require Manage Guild (also check permission at execution). Persist settings per guild through the existing settings mechanism, with absent engine setting resolving to `legacy`. `/ai status` reports engine, model, web availability, learning state, and pending count without exposing facts. Memory views and personal deletion responses are ephemeral; default `show` to self and restrict other-user inspection to authorized moderators. Self-service forgetting/learning changes affect only the invoking user's memories; moderator operations require explicit targets and permissions.
 
 The new engine must be toggleable independently of model choice. Snapshot the engine at enqueue time: an already accepted request finishes with its original engine, and requests accepted after a successful toggle use the new engine. Do not run both generators or post duplicate replies. Switching to legacy retains v2 data and pauses its fact extraction by default; background work rechecks learning mode before committing. Do not silently fall back from v2 to legacy on errors, since that reintroduces the very static context the user is avoiding.
 
@@ -372,7 +372,7 @@ Slugs, prices (USD per 1M tokens, input / output) and capabilities below come fr
 
 Cost sketch for one reply (4,000 input + 150 output tokens, before tools): Haiku 5.5 or Luna ≈ $0.0005, Gemini 3 Flash preview (current) ≈ $0.0025, Terra ≈ $0.0048, Sonnet 5.5 ≈ $0.0095. Each web search adds the search engine's per-request charge (reported in `usage.server_tool_use.web_search_requests`). Batch passive-message extraction every 1–2 minutes per channel, rather than once per message.
 
-Make chat, extractor, and embedding models separately configurable (env + `/ai status`), and record model ID per response so the bake-off can compare roast quality, attribution errors, and cost on the same transcripts. A newer model is not automatically a funnier one.
+Make chat, extractor, and embedding models separately configurable (env + `/aiconfig status`), and record model ID per response so the bake-off can compare roast quality, attribution errors, and cost on the same transcripts. A newer model is not automatically a funnier one.
 
 Sources:
 

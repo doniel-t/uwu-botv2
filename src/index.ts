@@ -100,7 +100,7 @@ client.on('ready', async () => {
         console.error('[VectorDB] Initialization error:', error);
     }
 
-    // Memory engine (v2). Opt-in per guild via /ai engine; legacy stays the default.
+    // Memory engine (v2). Opt-in per guild via /aiconfig engine; legacy stays the default.
     try {
         initMemoryV2(client);
     } catch (error) {

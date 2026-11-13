@@ -387,7 +387,7 @@ export async function startBackfill(req: BackfillRequest): Promise<{ ok: true } 
   const { client, guild } = req;
   if (!client.user) return { ok: false, error: "Bot is not ready yet." };
   if (activeJobFor(guild.id)) return { ok: false, error: "A backfill for this server is already in progress." };
-  if (!getAISettings(guild.id).learning) return { ok: false, error: "Learning is paused here (`/ai learning enabled:true` first)." };
+  if (!getAISettings(guild.id).learning) return { ok: false, error: "Learning is paused here (`/aiconfig learning enabled:true` first)." };
 
   const owner = await client.users.fetch(req.ownerId);
   const dmChannel = await owner.createDM().catch(() => null);
