@@ -1,4 +1,16 @@
-# pnpm 11+: packages allowed (true) or not allowed (false) to run install scripts.
+# Packages allowed to run install scripts (native builds).
+# pnpm 10 (used in the Dockerfile) reads onlyBuiltDependencies.
+onlyBuiltDependencies:
+  - '@discordjs/opus'
+  - better-sqlite3
+  - bufferutil
+  - canvas
+  - erlpack
+  - ffmpeg-static
+  - utf-8-validate
+  - zlib-sync
+
+# pnpm 11+ reads allowBuilds instead.
 allowBuilds:
   '@discordjs/opus': true
   better-sqlite3: true
