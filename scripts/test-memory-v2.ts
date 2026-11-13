@@ -15,6 +15,7 @@ import { activeJobFor, parseSince, startBackfill } from "../src/utils/LLM/v2/bac
 import { ago, fmtDate, fmtDateTime, parseDateInput } from "../src/utils/LLM/v2/time";
 import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfileRefreshOnce } from "../src/utils/LLM/v2/profiles";
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
+import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "../src/utils/LLM/v2/leakedTools";
 import { searchMessages } from "../src/utils/LLM/v2/messages";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
 
@@ -247,7 +248,7 @@ async function main() {
     },
   };
   const guild: any = { id: G, members: { cache: members } };
-  let clock = Date.UTC(2026, 10, 13, 12, 0, 0);
+  let clock = Date.now() - 60 * 60 * 1000; // relative to now: the context only looks back 6h
   let nextId = 800000000000000000n;
   function fakeMessage(authorId: string, content: string, opts: { replyTo?: string; mentions?: string[]; isBot?: boolean; attachments?: any[]; embeds?: any[] } = {}) {
     const id = String(nextId++);
@@ -860,6 +861,36 @@ async function main() {
     const sp = buildSystemPrompt({ botId: BOT, now: "now", timezone: "Europe/Berlin", webEnabled: true });
     assert.ok(sp.includes("4chan") && sp.includes("search_messages") && sp.includes("<profiles>") && sp.includes("Hard limits"));
     assert.ok(!buildSystemPrompt({ botId: BOT, now: "now", timezone: "x", webEnabled: false }).includes("web_search:"));
+  });
+
+  section("leaked tool calls");
+  test("DeepSeek DSML markup (as seen in Discord) is parsed", () => {
+    const fullwidth = [
+      "<｜DSML｜calls>",
+      '<｜DSML｜invoke name="search_messages">',
+      '<｜DSML｜parameter name="from" string="true">2026-10-01</｜DSML｜parameter>',
+      '<｜DSML｜parameter name="to" string="true">2026-10-31</｜DSML｜parameter>',
+      '<｜DSML｜parameter name="user" string="true">222398053703876628</｜DSML｜parameter>',
+      '<｜DSML｜parameter name="limit" string="false">120</｜DSML｜parameter>',
+      "</｜DSML｜invoke>",
+      "</｜DSML｜calls>",
+    ].join("\n");
+    const spaced = fullwidth.replace(/｜/g, " | ");
+    for (const text of [fullwidth, spaced]) {
+      assert.ok(hasLeakedToolMarkup(text));
+      assert.deepStrictEqual(parseLeakedToolCalls(text), [
+        { name: "search_messages", args: { from: "2026-10-01", to: "2026-10-31", user: "222398053703876628", limit: 120 } },
+      ]);
+      assert.strictEqual(stripToolMarkup(text), "");
+    }
+  });
+  test("other leaked formats and normal text", () => {
+    const hermes = 'sure <tool_call>{"name": "web_search", "arguments": {"query": "patch notes"}}</tool_call>';
+    assert.deepStrictEqual(parseLeakedToolCalls(hermes), [{ name: "web_search", args: { query: "patch notes" } }]);
+    assert.strictEqual(stripToolMarkup(hermes), "sure");
+    const legacy = '<｜tool▁call▁begin｜>function<｜tool▁sep｜>search_user_memory\n```json\n{"user":"serg","query":""}\n```<｜tool▁call▁end｜>';
+    assert.deepStrictEqual(parseLeakedToolCalls(legacy), [{ name: "search_user_memory", args: { user: "serg", query: "" } }]);
+    assert.ok(!hasLeakedToolMarkup("anon this is literally the first google result | cope"));
   });
 
   await chain;

@@ -9,6 +9,8 @@ import { ResponseQueue } from "./responseQueue";
 import { getAISettings, MODELS } from "./settings";
 import { buildTools, ToolTrace } from "./tools";
 import { requestImageParts } from "./vision";
+import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "./leakedTools";
+import type { ModelMessage, ToolSet } from "ai";
 import { buildSystemPrompt } from "./persona";
 import { getProfile } from "./profiles";
 
@@ -60,6 +62,52 @@ function profilesBlock(guildId: string, userIds: string[], names: Map<string, st
     lines.push(`## ${names.get(id) ?? "unknown"} [user ${id}]\n${p.profile}`);
   }
   return lines.length ? `\n\n<profiles>\n${lines.join("\n\n")}\n</profiles>` : "";
+}
+
+const MAX_RECOVERY_ROUNDS = 2;
+
+async function recoverLeakedToolCalls(
+  text: string,
+  o: { tools: ToolSet; trace: ToolTrace; signal: AbortSignal; system: string; messages: ModelMessage[] }
+): Promise<string> {
+  let current = text;
+  const results: string[] = [];
+  for (let round = 0; round < MAX_RECOVERY_ROUNDS && hasLeakedToolMarkup(current); round++) {
+    const calls = parseLeakedToolCalls(current).slice(0, 3);
+    if (calls.length === 0) break;
+    console.warn(`[MemoryV2] Model wrote ${calls.length} tool call(s) as text; running them manually:`, calls.map((c) => c.name).join(", "));
+    for (const [i, call] of calls.entries()) {
+      const t: any = (o.tools as any)[call.name];
+      let output: unknown;
+      if (!t?.execute) {
+        output = { error: `unknown tool ${call.name}` };
+      } else {
+        try {
+          output = await t.execute(call.args, { toolCallId: `leaked-${round}-${i}`, messages: [], abortSignal: o.signal });
+        } catch (err) {
+          output = { error: (err as Error).message };
+        }
+      }
+      results.push(`<tool_result name="${call.name}" args='${JSON.stringify(call.args)}'>\n${JSON.stringify(output).slice(0, 12_000)}\n</tool_result>`);
+    }
+    const follow = await generateText({
+      model: createOpenRouter().chat(MODELS.chat),
+      system: o.system,
+      messages: [
+        ...o.messages,
+        { role: "assistant", content: "Let me check." },
+        {
+          role: "user",
+          content: `${results.join("\n\n")}\n\nThose are the results of your lookups. Now answer the <current_request> in plain text. Do not call or write any tools.`,
+        },
+      ] as ModelMessage[],
+      abortSignal: o.signal,
+      maxRetries: 1,
+      maxOutputTokens: 700,
+    });
+    current = follow.text;
+  }
+  return hasLeakedToolMarkup(current) ? stripToolMarkup(current) : current;
 }
 
 function updateResponse(triggerId: string, fields: Record<string, unknown>) {
@@ -217,7 +265,16 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
       maxOutputTokens: 700,
     });
 
-    const content = finalize(result.text, trace);
+    // Some models write tool calls as text (e.g. DeepSeek's "<｜DSML｜invoke ...>").
+    // Run those tools ourselves and ask for the real answer; never post the markup.
+    const replyText = await recoverLeakedToolCalls(result.text, {
+      tools,
+      trace,
+      signal,
+      system: systemPrompt(botId, webEnabled),
+      messages: ctx.messages,
+    });
+    const content = finalize(replyText, trace);
 
     updateResponse(trigger.id, { state: "sending" });
     let replyTo: Message = trigger;
@@ -227,7 +284,7 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
     const sent = await replyTo.reply({ content, allowedMentions: { parse: ["users"], repliedUser: true } });
     storeDiscordMessage(sent, { ownBotId: botId, triggerMessageId: trigger.id });
 
-    const usedFactIds = recordFactUsage(guildId, channelId, [...facts, ...trace.factsReturned], result.text);
+    const usedFactIds = recordFactUsage(guildId, channelId, [...facts, ...trace.factsReturned], replyText);
     const usage = result.totalUsage;
     const inputTokens = usage.inputTokens || 0;
     const outputTokens = usage.outputTokens || 0;
@@ -258,7 +315,7 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
         facts: facts.map((f) => f.id),
         tools: trace.used,
         steps: result.steps.length,
-        response: result.text.slice(0, 100),
+        response: replyText.slice(0, 100),
       },
     });
   } catch (err) {
