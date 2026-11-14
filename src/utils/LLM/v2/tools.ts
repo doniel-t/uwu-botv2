@@ -1,6 +1,7 @@
 import { jsonSchema, tool, ToolSet } from "ai";
 import { getOpenRouterKey, logAPICall } from "../utils/api/openrouter";
-import { factIsCurrent, getFact, getFactSources, jumpLink, searchFacts, Fact } from "./facts";
+import { factIsCurrent, getFact, getFactSources, jumpLink, Fact } from "./facts";
+import { getFactIndex, getFactsByPredicates } from "./retrieval";
 import { getMessagesAround, searchMessages, storedRange } from "./messages";
 import { getProfile } from "./profiles";
 import { fmtDate, fmtDateTime, parseDateInput } from "./time";
@@ -133,43 +134,68 @@ function resolveUser(ctx: ToolContext, user: string): string[] {
 
 export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
   const tools: ToolSet = {
-    search_user_memory: tool({
+    list_user_facts: tool({
       description:
-        "Look up what you remember about a server member (facts learned from chat, plus their profile). " +
-        "Use when someone asks what you know about a person, when you need more ammo for a roast of someone not covered in <roast_material>, " +
-        "or when a remembered detail clearly helps. history=true also returns facts that were later replaced.",
-      inputSchema: jsonSchema<{ user: string; query: string; history?: boolean; from?: string; to?: string }>({
+        "Show what you know about a server member: their profile and an index of their facts (category -> predicates with counts and examples). " +
+        "Use it first for someone who isn't covered in the prompt, then load the predicates you need with get_user_facts.",
+      inputSchema: jsonSchema<{ user: string }>({
         type: "object",
         additionalProperties: false,
-        required: ["user", "query"],
-        properties: {
-          user: { type: "string", description: "Discord user ID, <@id> mention, or a name/nickname" },
-          query: { type: "string", description: "topic to look for, e.g. 'gpu', 'games'; empty string for anything" },
-          history: { type: "boolean", description: "include replaced/expired facts" },
-          from: { type: "string", description: "only facts stated on/after this date (YYYY-MM-DD, 'yesterday', '30d')" },
-          to: { type: "string", description: "only facts stated on/before this date (YYYY-MM-DD)" },
-        },
+        required: ["user"],
+        properties: { user: { type: "string", description: "Discord user ID, <@id> mention, or a name/nickname" } },
       }),
-      execute: async (input: { user: string; query: string; history?: boolean; from?: string; to?: string }) => {
-        if (!allow(trace, "search_user_memory")) return LIMIT_REACHED;
+      execute: async (input: { user: string }) => {
+        if (!allow(trace, "list_user_facts")) return LIMIT_REACHED;
         const ids = resolveUser(ctx, input.user);
         if (ids.length === 0) return { error: `no server member matches "${input.user}"` };
         if (ids.length > 1) return { error: `"${input.user}" is ambiguous`, candidates: ids.map((id) => ({ id, name: ctx.names.get(id) })) };
-        const from = parseDateInput(input.from) ?? undefined;
-        const to = parseDateInput(input.to, true) ?? undefined;
-        const facts = searchFacts(ctx.guildId, ids, input.query ?? "", 12, { history: !!input.history, from, to });
-        trace.factsReturned.push(...facts.filter((f) => factIsCurrent(f)));
+        const index = getFactIndex(ctx.guildId, ids[0]);
+        const categories: Record<string, { predicate: string; count: number; examples: string[] }[]> = {};
+        for (const e of index) (categories[e.category] ??= []).push({ predicate: e.predicate, count: e.count, examples: e.examples });
         const profile = getProfile(ctx.guildId, ids[0]);
+        return { user_id: ids[0], name: ctx.names.get(ids[0]) ?? null, profile: profile ? profile.profile : null, fact_count: index.reduce((n, e) => n + e.count, 0), categories };
+      },
+    } as any),
+
+    get_user_facts: tool({
+      description:
+        "Load a member's facts for one or more predicates (exact names from list_user_facts) and/or whole categories. " +
+        "history=true also returns facts that were later replaced. Every fact has an id for get_fact_source.",
+      inputSchema: jsonSchema<{ user: string; predicates?: string[]; categories?: string[]; history?: boolean }>({
+        type: "object",
+        additionalProperties: false,
+        required: ["user"],
+        properties: {
+          user: { type: "string", description: "Discord user ID, <@id> mention, or a name/nickname" },
+          predicates: { type: "array", items: { type: "string" }, description: "e.g. [\"plays_game\", \"mains_role\"]" },
+          categories: { type: "array", items: { type: "string" }, description: "e.g. [\"game\", \"skill_or_rank\"]" },
+          history: { type: "boolean", description: "include replaced facts" },
+        },
+      }),
+      execute: async (input: { user: string; predicates?: string[]; categories?: string[]; history?: boolean }) => {
+        if (!allow(trace, "get_user_facts")) return LIMIT_REACHED;
+        const ids = resolveUser(ctx, input.user);
+        if (ids.length === 0) return { error: `no server member matches "${input.user}"` };
+        if (ids.length > 1) return { error: `"${input.user}" is ambiguous`, candidates: ids.map((id) => ({ id, name: ctx.names.get(id) })) };
+        if (!input.predicates?.length && !input.categories?.length) return { error: "give predicates and/or categories (see list_user_facts)" };
+        const facts = getFactsByPredicates(ctx.guildId, ids[0], {
+          predicates: input.predicates,
+          categories: input.categories,
+          history: !!input.history,
+          channelId: ctx.channelId,
+          perPredicate: 10,
+          limit: 30,
+        });
+        trace.factsReturned.push(...facts.filter((f) => factIsCurrent(f)));
         return {
           user_id: ids[0],
-          profile: profile ? profile.profile : null,
           facts: facts.map((f) => ({
             id: f.id,
-            source_message_ids: f.sourceMessageIds,
+            category: f.category,
             fact: `${f.predicate.replace(/_/g, " ")}: ${f.value}`,
             kind: f.kind,
-            status: factIsCurrent(f) ? "current" : f.status === "superseded" ? "replaced by a newer fact" : "expired",
-            reported_by: f.reporters.map((r) => (r === f.subjectUserId ? "themself" : `user ${r}`)),
+            status: factIsCurrent(f) ? "current" : "replaced by a newer fact",
+            reported_by: f.reporters.map((r) => (r === f.subjectUserId ? "themself" : ctx.names.get(r) ?? `user ${r}`)),
           })),
         };
       },

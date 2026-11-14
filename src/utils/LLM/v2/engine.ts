@@ -3,7 +3,8 @@ import { generateText, stepCountIs } from "ai";
 import { createOpenRouter, computeCost, logAPICall } from "../utils/api/openrouter";
 import { getV2DB } from "./db";
 import { buildContext, TIMEZONE } from "./context";
-import { recordFactUsage, RankedFact, selectFactsForReply } from "./facts";
+import { recordFactUsage, RankedFact } from "./facts";
+import { planFactRetrieval, RetrievalUser } from "./retrieval";
 import { getMessage, storeDiscordMessage } from "./messages";
 import { ResponseQueue } from "./responseQueue";
 import { getAISettings, MODELS } from "./settings";
@@ -53,7 +54,7 @@ function memoryBlock(facts: RankedFact[], names: Map<string, string>): string {
   return out;
 }
 
-const MAX_PROFILES = 2;
+const MAX_PROFILES = 3;
 /** Profiles are background on who someone is, not a list of material to recite. */
 const PROFILE_PROMPT_CHARS = 1400;
 
@@ -239,8 +240,28 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
   try {
     const ctx = await buildContext(trigger, botId);
 
-    const subjects = [...new Set([...ctx.targetIds, ctx.requesterId, ...stored.nameRefs.filter((r) => !!r.userId).map((r) => r.userId!)])];
-    const facts = selectFactsForReply(guildId, channelId, subjects, ctx.targetIds, ctx.topicText, stored.content);
+    // Everyone the request involves: targets, the requester, and anyone mentioned or named.
+    const involved: RetrievalUser[] = [];
+    const add = (id: string, role: RetrievalUser["role"]) => {
+      if (id && id !== botId && !involved.some((u) => u.id === id)) involved.push({ id, name: ctx.names.get(id) ?? id, role });
+    };
+    ctx.targetIds.forEach((id) => add(id, "target"));
+    add(ctx.requesterId, "requester");
+    stored.mentionedUserIds.forEach((id) => add(id, "mentioned"));
+    stored.nameRefs.filter((r) => r.confidence !== "low" && r.userId).forEach((r) => add(r.userId!, "mentioned"));
+    const subjects = involved.slice(0, 5);
+
+    // A cheap planner looks at each person's fact index and picks the predicates worth loading.
+    const plan = await planFactRetrieval({
+      guildId,
+      channelId,
+      users: subjects,
+      targetIds: ctx.targetIds,
+      request: stored.content,
+      chat: ctx.topicText,
+      signal,
+    });
+    const facts = plan.facts;
 
     // Images on the ping or the replied-to message go to the model directly.
     // Re-fetch those messages: stored Discord CDN links expire.
@@ -254,8 +275,8 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
 
     const last = ctx.messages[ctx.messages.length - 1];
     if (last.role === "user" && typeof last.content === "string") {
-      // Only the people the reply is about (the target, or the requester when they talk about themself).
-      const profileIds = [...new Set(ctx.targetIds)];
+      // Profiles of everyone involved, targets first (they matter more than single facts).
+      const profileIds = subjects.map((u) => u.id);
       const text = last.content + profilesBlock(guildId, profileIds, ctx.names) + memoryBlock(facts, ctx.names) + images.intro;
       ctx.messages[ctx.messages.length - 1] =
         images.parts.length > 0 ? { role: "user", content: [{ type: "text", text }, ...images.parts] } : { role: "user", content: text };
@@ -365,6 +386,7 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
         targets: ctx.targetIds,
         via: ctx.targetSource,
         facts: facts.map((f) => f.id),
+        plan: plan.planned ? plan.picks.map((p) => `${ctx.names.get(p.user_id) ?? p.user_id}: ${p.predicates.join(", ")}`) : "fallback",
         tools: trace.used,
         steps: result.steps.length,
         response: replyText.slice(0, 100),

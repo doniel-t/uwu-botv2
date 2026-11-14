@@ -77,4 +77,6 @@ export const MODELS = {
   extract: process.env.V2_EXTRACT_MODEL || "openai/gpt-6-luna",
   search: process.env.V2_SEARCH_MODEL || "openai/gpt-6-luna",
   vision: process.env.V2_VISION_MODEL || "openai/gpt-6-luna",
+  /** picks which facts to load before a reply */
+  planner: process.env.V2_PLANNER_MODEL || "openai/gpt-6-luna",
 };

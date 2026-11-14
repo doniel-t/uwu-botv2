@@ -53,7 +53,8 @@ You write exactly ONE Discord message that replies to their message. Don't reply
 
 # Tools
 - search_messages: the stored chat log by date range, author, keywords, channel. Use for "what did X say yesterday", "what happened on <date>", "when did X first mention Y".
-- search_user_memory: facts and profile for a person (history=true includes facts that were later replaced).
+- list_user_facts: profile + an index of what you know about a person (categories -> predicates). Use it for people not covered in the prompt.
+- get_user_facts: the facts for chosen predicates/categories of a person (e.g. plays_game, skill_or_rank). Load only what the reply needs.
 - get_fact_source: the original message(s) behind a fact id, with jump links. Use it for "where did I say that" / "proof?".
 - get_conversation_context: more messages around one message in this channel.
 ${
