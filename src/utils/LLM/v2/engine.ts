@@ -18,6 +18,9 @@ import { getProfile } from "./profiles";
 const queue = new ResponseQueue();
 /** Room for MAX_TOOL_CALLS lookups plus the final answer. */
 const MAX_STEPS = MAX_TOOL_CALLS + 2;
+// Reasoning models (gpt-6-luna) spend part of this on hidden thinking, so it has to be far above
+// the ~500 tokens a 2000-character Discord message needs, or the reply gets cut mid-sentence.
+const REPLY_MAX_TOKENS = 20000;
 const DISCORD_LIMIT = 2000;
 
 export function pendingResponses(): number {
@@ -108,7 +111,7 @@ async function recoverLeakedToolCalls(
       ] as ModelMessage[],
       abortSignal: o.signal,
       maxRetries: 1,
-      maxOutputTokens: 700,
+      maxOutputTokens: REPLY_MAX_TOKENS,
     });
     current = follow.text;
   }
@@ -136,7 +139,7 @@ async function forceFinalAnswer(o: {
     messages: [...o.messages, ...o.stepMessages, { role: "user", content: nudge }] as ModelMessage[],
     abortSignal: o.signal,
     maxRetries: 1,
-    maxOutputTokens: 700,
+    maxOutputTokens: REPLY_MAX_TOKENS,
   });
   return hasLeakedToolMarkup(follow.text) ? stripToolMarkup(follow.text) : follow.text;
 }
@@ -316,7 +319,7 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
         trace.used.length >= MAX_TOOL_CALLS || stepNumber >= MAX_STEPS - 1 ? ({ activeTools: [], toolChoice: "none" } as any) : {},
       abortSignal: signal,
       maxRetries: 1,
-      maxOutputTokens: 700,
+      maxOutputTokens: REPLY_MAX_TOKENS,
     });
 
     // Some models write tool calls as text (e.g. DeepSeek's "<｜DSML｜invoke ...>").
@@ -329,6 +332,9 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
       messages: ctx.messages,
     });
     let replyText = recovered.text;
+    if (result.finishReason === "length") {
+      console.warn(`[MemoryV2] Reply from ${MODELS.chat} hit the ${REPLY_MAX_TOKENS}-token output limit and may be cut off`);
+    }
     if (!replyText.trim()) {
       const last = result.steps[result.steps.length - 1];
       console.warn(
