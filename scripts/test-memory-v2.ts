@@ -18,6 +18,7 @@ import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfile
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
 import { hasLeakedToolMarkup, parseLeakedToolCalls, stripToolMarkup } from "../src/utils/LLM/v2/leakedTools";
 import { buildTools } from "../src/utils/LLM/v2/tools";
+import { _setPlannerForTests, getFactIndex, getFactsByPredicates, planFactRetrieval, renderFactIndex } from "../src/utils/LLM/v2/retrieval";
 import { buildProfilePrompt } from "../src/utils/LLM/v2/profiles";
 import { refreshStoredImages, setMessageImages } from "../src/utils/LLM/v2/messages";
 import { buildExtractionContext, chunkByConversation } from "../src/utils/LLM/v2/extractionContext";
@@ -984,8 +985,8 @@ async function main() {
     );
     const results: any[] = [];
     for (let i = 0; i < 11; i++) {
-      const tool = i % 2 ? tools.search_messages : tools.search_user_memory;
-      results.push(await tool.execute(i % 2 ? { from: "7d" } : { user: DANIEL, query: "" }, {}));
+      const tool = i % 2 ? tools.search_messages : tools.list_user_facts;
+      results.push(await tool.execute(i % 2 ? { from: "7d" } : { user: DANIEL }, {}));
     }
     assert.ok(results.slice(0, 10).every((r) => !/limit/.test(r.error ?? "")), "first 10 calls run");
     assert.ok(/limit/.test(results[10].error), JSON.stringify(results[10]));
@@ -1243,6 +1244,114 @@ async function main() {
     assert.deepStrictEqual(valid.map((v) => v.value), ["Jett", "Death Note", "a red Golf GTI", "Augsburg"]);
     assert.ok(!containsContactDetails("13-11 13-9 and 2024-2025"));
     assert.ok(containsContactDetails("+49 151 23456789"));
+  });
+
+  section("planned fact retrieval");
+  const RG = "665991423933547400";
+  chain = chain.then(() => {
+    updateAISettings(RG, { engine: "memory", learning: true }, DANIEL);
+    clock = Date.now();
+    const say = (author: string, text: string) => {
+      const m: any = fakeMessage(author, text);
+      m.guild = { ...guild, id: RG };
+      m.guildId = RG;
+      storeDiscordMessage(m, { ownBotId: BOT });
+      return getMessage(RG, m.id)!;
+    };
+    const store = (msg: any, subject: string, category: string, predicate: string, value: string, quote: string) =>
+      storeValidatedFacts(
+        RG,
+        validateCandidates(
+          RG,
+          [{ source_ref: "x", subject_user_id: subject, classification: "self_report", category, predicate, value, evidence_quote: quote, confidence: "high", context_ref: null, multi_valued: true, supersedes_fact_id: null } as any],
+          new Map([["x", msg]]),
+          new Set(["x"]),
+          new Map()
+        )
+      );
+    const a = say(SERGEJ, "I main Yasuo, I play League and Valorant, hardstuck silver, I love pizza and techno, I own a Golf GTI");
+    store(a, SERGEJ, "game", "mains_champion", "Yasuo", "I main Yasuo");
+    store(a, SERGEJ, "game", "plays_game", "League of Legends", "I play League");
+    store(a, SERGEJ, "game", "plays_game", "Valorant", "Valorant");
+    store(a, SERGEJ, "skill_or_rank", "rank", "hardstuck silver", "hardstuck silver");
+    store(a, SERGEJ, "taste", "likes_food", "pizza", "I love pizza");
+    store(a, SERGEJ, "taste", "likes_music", "techno", "techno");
+    store(a, SERGEJ, "possession", "owns_car", "a Golf GTI", "I own a Golf GTI");
+    const b = say(DANIEL, "I play osu every day");
+    store(b, DANIEL, "game", "plays_game", "osu!", "I play osu");
+  });
+
+  test("fact index groups predicates by category with counts and examples", () => {
+    const idx = getFactIndex(RG, SERGEJ);
+    const games = idx.filter((e) => e.category === "game");
+    assert.deepStrictEqual(games.map((e) => `${e.predicate}:${e.count}`), ["plays_game:2", "mains_champion:1"]);
+    assert.ok(renderFactIndex(idx).includes("skill_or_rank: rank (1: hardstuck silver)"), renderFactIndex(idx));
+  });
+
+  test("facts by predicate: topic-related first, per-predicate cap, categories", () => {
+    const byPred = getFactsByPredicates(RG, SERGEJ, { predicates: ["plays_game"], topic: "valorant ranked tonight" });
+    assert.deepStrictEqual(byPred.map((f) => f.value), ["Valorant", "League of Legends"]);
+    assert.strictEqual(getFactsByPredicates(RG, SERGEJ, { predicates: ["plays_game"], perPredicate: 1 }).length, 1);
+    assert.deepStrictEqual(getFactsByPredicates(RG, SERGEJ, { categories: ["taste"] }).map((f) => f.predicate).sort(), ["likes_food", "likes_music"]);
+  });
+
+  test("planner picks predicates; invalid users/predicates are dropped; roast facts become ammo", async () => {
+    let seenPrompt = "";
+    _setPlannerForTests(async (prompt) => {
+      seenPrompt = prompt;
+      return {
+        picks: [
+          { user_id: SERGEJ, predicates: ["rank", "mains_champion", "made_up_predicate"] },
+          { user_id: "999999999999999999", predicates: ["rank"] },
+        ],
+      };
+    });
+    const res = await planFactRetrieval({
+      guildId: RG,
+      channelId: CH,
+      users: [
+        { id: SERGEJ, name: "Sergej", role: "target" },
+        { id: DANIEL, name: "Daniel", role: "requester" },
+      ],
+      targetIds: [SERGEJ],
+      request: "roast serg",
+      chat: "",
+    });
+    _setPlannerForTests();
+    assert.ok(res.planned);
+    assert.ok(seenPrompt.includes("ROAST") && seenPrompt.includes("## Sergej") && seenPrompt.includes("## Daniel"), seenPrompt);
+    assert.deepStrictEqual(res.picks, [{ user_id: SERGEJ, predicates: ["rank", "mains_champion"] }]);
+    assert.deepStrictEqual(res.facts.map((f) => f.value).sort(), ["Yasuo", "hardstuck silver"]);
+    assert.ok(res.facts.every((f) => f.ammo), "target facts on a roast are roast material");
+  });
+
+  test("planner may pick nothing; failure falls back to keyword selection", async () => {
+    _setPlannerForTests(async () => ({ picks: [] }));
+    const none = await planFactRetrieval({ guildId: RG, channelId: CH, users: [{ id: SERGEJ, name: "Sergej", role: "requester" }], targetIds: [SERGEJ], request: "what's the weather", chat: "" });
+    assert.deepStrictEqual(none.facts, []);
+    _setPlannerForTests(async () => {
+      throw new Error("model down");
+    });
+    const fb = await planFactRetrieval({ guildId: RG, channelId: CH, users: [{ id: SERGEJ, name: "Sergej", role: "requester" }], targetIds: [SERGEJ], request: "is valorant still good", chat: "" });
+    _setPlannerForTests();
+    assert.strictEqual(fb.planned, false);
+    assert.ok(fb.facts.some((f) => f.value === "Valorant"), "fallback still finds topic facts");
+  });
+
+  test("list_user_facts / get_user_facts tools", async () => {
+    const trace = { used: [] as string[], sources: [], factsReturned: [] as any[], webSearches: 0 };
+    const tools: any = buildTools(
+      { guildId: RG, channelId: CH, refMap: new Map(), names: new Map([[SERGEJ, "Sergej"]]), webEnabled: false, canView: () => true, channelName: () => "general" },
+      trace as any
+    );
+    const list = await tools.list_user_facts.execute({ user: SERGEJ }, {});
+    assert.strictEqual(list.fact_count, 7);
+    assert.deepStrictEqual(Object.keys(list.categories).sort(), ["game", "possession", "skill_or_rank", "taste"]);
+    const got = await tools.get_user_facts.execute({ user: SERGEJ, predicates: ["owns_car"], categories: ["skill_or_rank"] }, {});
+    assert.deepStrictEqual(got.facts.map((f: any) => f.fact).sort(), ["owns car: a Golf GTI", "rank: hardstuck silver"]);
+    assert.strictEqual(trace.factsReturned.length, 2);
+    const bad = await tools.get_user_facts.execute({ user: SERGEJ }, {});
+    assert.ok(/predicates/.test(bad.error));
   });
 
   await chain;
