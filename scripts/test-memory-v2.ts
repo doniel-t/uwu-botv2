@@ -549,6 +549,15 @@ async function main() {
     assert.ok(res.intro.includes("Image 1: from m3 by Jason"));
   });
 
+  test("text-only chat model: request images become descriptions instead of parts", async () => {
+    clock = Date.now();
+    const m = fakeMessage(SERGEJ, "rate my setup", { attachments: [png("desk2.png"), png("broken.png")] });
+    const res = await requestImageParts([{ ref: "m4", label: "Sergej", message: m }], undefined, { textOnly: true });
+    assert.strictEqual(res.parts.length, 0);
+    assert.ok(res.intro.includes("Image 1: from m4 by Sergej: Photo of a desk"), res.intro);
+    assert.ok(res.intro.includes("can't see these images"), res.intro);
+  });
+
   test("link-preview images that arrive later are merged and captioned", async () => {
     clock = Date.now();
     const m = fakeMessage(JASON, "https://tenor.com/view/cat-123");

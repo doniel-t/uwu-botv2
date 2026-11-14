@@ -21,6 +21,17 @@ const MAX_STEPS = MAX_TOOL_CALLS + 2;
 // Reasoning models (gpt-6-luna) spend part of this on hidden thinking, so it has to be far above
 // the ~500 tokens a 2000-character Discord message needs, or the reply gets cut mid-sentence.
 const REPLY_MAX_TOKENS = 20000;
+
+/**
+ * Chat models that rejected image input this run. Their request images are described by the
+ * vision model instead. V2_CHAT_VISION=false skips the failed first try for a known text-only model.
+ */
+const textOnlyChatModels = new Set<string>();
+const chatIsTextOnly = () => process.env.V2_CHAT_VISION === "false" || textOnlyChatModels.has(MODELS.chat);
+const isNoImageSupportError = (err: unknown) => {
+  const e = err as { message?: string; body?: string; responseBody?: string };
+  return /support image input|image input is not supported|does not support image/i.test(`${e?.message ?? ""} ${e?.body ?? ""} ${e?.responseBody ?? ""}`);
+};
 const DISCORD_LIMIT = 2000;
 
 export function pendingResponses(): number {
@@ -274,16 +285,20 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
         return live ? { ref: s.ref, label: s.label, message: live } : null;
       })
     );
-    const images = await requestImageParts(imageMessages.filter((x) => x !== null), signal);
+    const imageSources = imageMessages.filter((x) => x !== null);
+    let images = await requestImageParts(imageSources, signal, { textOnly: chatIsTextOnly() });
 
-    const last = ctx.messages[ctx.messages.length - 1];
-    if (last.role === "user" && typeof last.content === "string") {
+    const lastIdx = ctx.messages.length - 1;
+    const baseLast = ctx.messages[lastIdx];
+    const applyImages = () => {
+      if (baseLast.role !== "user" || typeof baseLast.content !== "string") return;
       // Profiles of everyone involved, targets first (they matter more than single facts).
       const profileIds = subjects.map((u) => u.id);
-      const text = last.content + profilesBlock(guildId, profileIds, ctx.names) + memoryBlock(facts, ctx.names) + images.intro;
-      ctx.messages[ctx.messages.length - 1] =
+      const text = baseLast.content + profilesBlock(guildId, profileIds, ctx.names) + memoryBlock(facts, ctx.names) + images.intro;
+      ctx.messages[lastIdx] =
         images.parts.length > 0 ? { role: "user", content: [{ type: "text", text }, ...images.parts] } : { role: "user", content: text };
-    }
+    };
+    applyImages();
 
     const trace: ToolTrace = { used: [], sources: [], factsReturned: [], webSearches: 0 };
     const tools = buildTools(
@@ -307,20 +322,33 @@ async function respond(trigger: Message, botId: string, webEnabled: boolean, sig
       trace
     );
 
-    const result = await generateText({
-      model: createOpenRouter().chat(MODELS.chat),
-      system: systemPrompt(botId, webEnabled),
-      messages: ctx.messages,
-      tools,
-      stopWhen: stepCountIs(MAX_STEPS),
-      // After MAX_TOOL_CALLS lookups (or on the last step) tools are switched off,
-      // so the model has to write its answer.
-      prepareStep: ({ stepNumber }: { stepNumber: number }) =>
-        trace.used.length >= MAX_TOOL_CALLS || stepNumber >= MAX_STEPS - 1 ? ({ activeTools: [], toolChoice: "none" } as any) : {},
-      abortSignal: signal,
-      maxRetries: 1,
-      maxOutputTokens: REPLY_MAX_TOKENS,
-    });
+    const runReply = () =>
+      generateText({
+        model: createOpenRouter().chat(MODELS.chat),
+        system: systemPrompt(botId, webEnabled),
+        messages: ctx.messages,
+        tools,
+        stopWhen: stepCountIs(MAX_STEPS),
+        // After MAX_TOOL_CALLS lookups (or on the last step) tools are switched off,
+        // so the model has to write its answer.
+        prepareStep: ({ stepNumber }: { stepNumber: number }) =>
+          trace.used.length >= MAX_TOOL_CALLS || stepNumber >= MAX_STEPS - 1 ? ({ activeTools: [], toolChoice: "none" } as any) : {},
+        abortSignal: signal,
+        maxRetries: 1,
+        maxOutputTokens: REPLY_MAX_TOKENS,
+      });
+    let result: Awaited<ReturnType<typeof runReply>>;
+    try {
+      result = await runReply();
+    } catch (err) {
+      if (images.parts.length === 0 || !isNoImageSupportError(err)) throw err;
+      // Text-only chat model: remember that, describe the images with the vision model and retry.
+      console.warn(`[MemoryV2] ${MODELS.chat} can't take images; describing them with ${MODELS.vision} instead`);
+      textOnlyChatModels.add(MODELS.chat);
+      images = await requestImageParts(imageSources, signal, { textOnly: true });
+      applyImages();
+      result = await runReply();
+    }
 
     // Some models write tool calls as text (e.g. DeepSeek's "<｜DSML｜invoke ...>").
     // Run those tools ourselves and ask for the real answer; never post the markup.

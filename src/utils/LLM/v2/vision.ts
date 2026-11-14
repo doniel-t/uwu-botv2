@@ -271,22 +271,48 @@ async function captionMessage(job: CaptionJob): Promise<void> {
 /**
  * Fresh image parts for the current request. Discord CDN links expire, so the
  * caller passes live Message objects (re-fetched), not stored URLs.
+ *
+ * With textOnly (the chat model can't take images), each image is described by
+ * the vision model instead and the descriptions go into the text.
  */
 export async function requestImageParts(
   sources: { ref: string; label: string; message: Message }[],
   signal?: AbortSignal,
-  max = 4
+  opts: { max?: number; textOnly?: boolean } = {}
 ): Promise<{ intro: string; parts: ImagePart[] }> {
+  const max = opts.max ?? 4;
   const parts: ImagePart[] = [];
   const lines: string[] = [];
+  let count = 0;
   for (const s of sources) {
     for (const img of imagesOf(s.message)) {
-      if (parts.length >= max || img.state === "skipped") continue;
+      if (count >= max || img.state === "skipped") continue;
       const file = await downloader(img.url, signal);
       if (!file) continue;
-      parts.push({ type: "image", image: file.data, mediaType: file.mediaType });
-      lines.push(`Image ${parts.length}: from ${s.ref} by ${s.label}`);
+      count++;
+      if (!opts.textOnly) {
+        parts.push({ type: "image", image: file.data, mediaType: file.mediaType });
+        lines.push(`Image ${count}: from ${s.ref} by ${s.label}`);
+        continue;
+      }
+      const guildId = s.message.guild?.id ?? "";
+      const stored = guildId ? getMessage(guildId, s.message.id) : null;
+      const caption = await captionImpl(file, {
+        guildId,
+        messageId: s.message.id,
+        authorName: s.label,
+        text: s.message.content ?? "",
+        context: stored ? buildCaptionContext(stored) : undefined,
+      })
+        .then((t) => t.replace(/\s+/g, " ").replace(/ ?Used as:/, " | Used as:").trim().slice(0, 500))
+        .catch((err) => {
+          console.warn("[MemoryV2] Describing a request image failed:", (err as Error).message);
+          return "";
+        });
+      lines.push(`Image ${count}: from ${s.ref} by ${s.label}: ${caption || "(could not be described)"}`);
     }
   }
-  return { intro: lines.length ? `\n\n<attached_images>\n${lines.join("\n")}\n</attached_images>` : "", parts };
+  if (!lines.length) return { intro: "", parts };
+  const note = opts.textOnly ? "You can't see these images directly; these are descriptions of them.\n" : "";
+  return { intro: `\n\n<attached_images>\n${note}${lines.join("\n")}\n</attached_images>`, parts };
 }
