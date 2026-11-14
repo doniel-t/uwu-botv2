@@ -12,6 +12,7 @@ import { _setBatchRunnerForTests, factIsCurrent, getActiveFacts, isWorthExtracti
 import { getMessage, markExtracted, mergeImages, storeDiscordMessage } from "../src/utils/LLM/v2/messages";
 import { buildContext } from "../src/utils/LLM/v2/context";
 import { activeJobFor, parseSince, startBackfill } from "../src/utils/LLM/v2/backfill";
+import { containsContactDetails } from "../src/utils/LLM/v2/facts";
 import { ago, fmtDate, fmtDateTime, parseDateInput } from "../src/utils/LLM/v2/time";
 import { _setProfileGeneratorForTests, getProfile, regenerateProfile, runProfileRefreshOnce } from "../src/utils/LLM/v2/profiles";
 import { buildSystemPrompt } from "../src/utils/LLM/v2/persona";
@@ -1198,6 +1199,50 @@ async function main() {
       ["plays_game:medium", "sore_loser:high"],
       "medium self-report game kept; medium personality/hearsay and low dropped; high hearsay kept"
     );
+  });
+
+  section("harsher fact gate");
+  test("sensitive topics, contact details, unnamed places and medium possessions are dropped", () => {
+    clock = Date.now();
+    const mk = (text: string) => {
+      const m = fakeMessage(JASON, text);
+      storeDiscordMessage(m, { ownBotId: BOT });
+      return getMessage(G, m.id)!;
+    };
+    const msgs = {
+      addr: mk("I live at Cosimastaße 170, 81927 Munich"),
+      phone: mk("call me at 0151 2345 6789 lol"),
+      score: mk("we won 13-11 13-9 and I main Jett"),
+      autism: mk("autism"),
+      deathnote: mk("death note is peak"),
+      pc: mk("my pc is loud"),
+      car: mk("my car is a red Golf GTI"),
+      place: mk("sonst schaff ich das glaub nich"),
+      augsburg: mk("Ich hab jetzt eine Wohnung in Augsburg"),
+    };
+    const refs = new Map(Object.entries(msgs));
+    const c = (ref: string, category: string, predicate: string, value: string, quote: string, confidence = "high") =>
+      ({ source_ref: ref, subject_user_id: JASON, classification: "self_report", category, predicate, value, evidence_quote: quote, confidence, context_ref: null, multi_valued: true, supersedes_fact_id: null } as any);
+    const valid = validateCandidates(
+      G,
+      [
+        c("addr", "location", "lives_in", "Munich", "I live at Cosimastaße 170, 81927 Munich"),
+        c("phone", "identity", "phone", "has a phone", "call me at 0151 2345 6789"),
+        c("score", "game", "main", "Jett", "I main Jett"),
+        c("autism", "identity", "has_autism", "autism", "autism"),
+        c("deathnote", "taste", "likes", "Death Note", "death note is peak"),
+        c("pc", "possession", "owns_pc", "a PC", "my pc", "medium"),
+        c("car", "possession", "owns_car", "a red Golf GTI", "my car is a red Golf GTI"),
+        c("place", "location", "lives_in", "Meitingen", "sonst schaff ich das glaub nich"),
+        c("augsburg", "location", "lives_in", "Augsburg", "Ich hab jetzt eine Wohnung in Augsburg"),
+      ],
+      refs,
+      new Set(Object.keys(msgs)),
+      new Map()
+    );
+    assert.deepStrictEqual(valid.map((v) => v.value), ["Jett", "Death Note", "a red Golf GTI", "Augsburg"]);
+    assert.ok(!containsContactDetails("13-11 13-9 and 2024-2025"));
+    assert.ok(containsContactDetails("+49 151 23456789"));
   });
 
   await chain;
