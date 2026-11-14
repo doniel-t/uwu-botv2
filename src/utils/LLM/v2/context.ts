@@ -216,9 +216,12 @@ export async function buildContext(trigger: Message, botId: string): Promise<Bui
   }
   flush();
 
+  // For people with nicknames, one is picked at random per reply so the bot varies how it calls them.
   const rosterLines = participantIds.map((id) => {
     const extra = nicks.get(id);
-    return `- ${names.get(id)} [user ${id}]${extra?.length ? ` · nicknames: ${extra.join(", ")}` : ""}`;
+    if (!extra?.length) return `- ${names.get(id)} [user ${id}]`;
+    const pick = extra[Math.floor(Math.random() * extra.length)];
+    return `- ${names.get(id)} [user ${id}] · nicknames: ${extra.join(", ")} · call them "${pick}" in this reply`;
   });
 
   const ambiguousRefs = self.nameRefs.filter((r) => r.confidence === "ambiguous");

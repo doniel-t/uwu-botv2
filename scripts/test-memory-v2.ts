@@ -25,6 +25,10 @@ import { buildExtractionContext, chunkByConversation } from "../src/utils/LLM/v2
 import { _setExtractorModelForTests, runExtractionBatch } from "../src/utils/LLM/v2/facts";
 import { countGuildMemory, getFactSources, looksTemporal, resetGuildMemory } from "../src/utils/LLM/v2/facts";
 import { searchMessages } from "../src/utils/LLM/v2/messages";
+import { addManualFact } from "../src/utils/LLM/v2/facts";
+import { markProfileDirty, setManualProfile } from "../src/utils/LLM/v2/profiles";
+import { getV2DB as getV2DBForTests } from "../src/utils/LLM/v2/db";
+import { handleProfileEditDM, pendingProfileEdit, splitForDiscord, startProfileEdit } from "../src/utils/LLM/v2/profileEdit";
 import { _captionsIdle, _setCaptionerForTests, imagesOf, queueCaptions, requestImageParts, setOnCaptioned } from "../src/utils/LLM/v2/vision";
 
 let passed = 0;
@@ -538,6 +542,26 @@ async function main() {
     assert.ok(all.includes("[image: Photo of a desk with a gaming PC"), all.slice(-600));
     assert.ok(ctx.topicText.includes("5090"));
     assert.deepStrictEqual(ctx.imageSources.map((s) => s.messageId), [m.id]);
+  });
+
+  test("a random nickname is picked per reply for people who have nicknames", async () => {
+    clock = Date.now();
+    const said = fakeMessage(LUKAS, "anyone up for ranked");
+    storeDiscordMessage(said, { ownBotId: BOT });
+    clock = Date.now();
+    const trigger = fakeMessage(DANIEL, `<@${BOT}> roast him`, { replyTo: said.id, mentions: [BOT] });
+    storeDiscordMessage(trigger, { ownBotId: BOT });
+    const lukasNicks = listNicknames(G, LUKAS).map((n) => n.nickname);
+    const picks = new Set<string>();
+    for (let i = 0; i < 15; i++) {
+      const ctx = await buildContext(trigger, BOT);
+      const text = ctx.messages[ctx.messages.length - 1].content as string;
+      const line = text.split("\n").find((l) => l.includes(`[user ${LUKAS}]`) && l.startsWith("- "))!;
+      const m = /call them "([^"]+)" in this reply/.exec(line);
+      assert.ok(m && lukasNicks.includes(m[1]), line);
+      picks.add(m![1]);
+    }
+    assert.ok(picks.size > 1, "nickname varies between replies");
   });
 
   test("request images are downloaded fresh and passed as image parts", async () => {
@@ -1361,6 +1385,94 @@ async function main() {
     assert.strictEqual(trace.factsReturned.length, 2);
     const bad = await tools.get_user_facts.execute({ user: SERGEJ }, {});
     assert.ok(/predicates/.test(bad.error));
+  });
+
+  section("hand-added facts and hand-edited profiles");
+
+  test("/memory add stores a curated fact that learning can't supersede", async () => {
+    const added = addManualFact(RG, { subjectUserId: SERGEJ, category: "reputation", value: "  rage quits   every ranked game ", addedBy: DANIEL, addedByName: "daniel" });
+    assert.ok(added.ok);
+    const f = (added as any).fact;
+    assert.strictEqual(f.kind, "curated_seed");
+    assert.strictEqual(f.predicate, "known_for");
+    assert.strictEqual(f.value, "rage quits every ranked game");
+    assert.ok(getFactIndex(RG, SERGEJ).some((e) => e.predicate === "known_for"));
+    const again = addManualFact(RG, { subjectUserId: SERGEJ, category: "reputation", value: "rage quits every ranked game", addedBy: DANIEL });
+    assert.ok(again.ok && (again as any).existed && (again as any).fact.id === f.id);
+    assert.ok(!addManualFact(RG, { subjectUserId: SERGEJ, category: "nonsense", value: "x y", addedBy: DANIEL }).ok);
+
+    // A hand-added single value stays next to a later learned one of the same predicate.
+    const rank = addManualFact(RG, { subjectUserId: JASON, category: "skill_or_rank", value: "Diamond 2", predicate: "Rank", addedBy: DANIEL });
+    assert.ok(rank.ok && (rank as any).fact.predicate === "rank");
+    clock = Date.now();
+    const msg: any = fakeMessage(JASON, "I'm gold now");
+    msg.guild = { ...guild, id: RG };
+    msg.guildId = RG;
+    storeDiscordMessage(msg, { ownBotId: BOT });
+    const stored = getMessage(RG, msg.id)!;
+    storeValidatedFacts(
+      RG,
+      validateCandidates(
+        RG,
+        [{ source_ref: "x", subject_user_id: JASON, classification: "self_report", category: "skill_or_rank", predicate: "rank", value: "gold", evidence_quote: "I'm gold now", confidence: "high", context_ref: null, multi_valued: false, supersedes_fact_id: null } as any],
+        new Map([["x", stored]]),
+        new Set(["x"]),
+        new Map()
+      )
+    );
+    assert.deepStrictEqual(getActiveFacts(RG, [JASON]).filter((x) => x.predicate === "rank").map((x) => x.value).sort(), ["Diamond 2", "gold"]);
+
+    // Its "source" says who added it, with no fake jump link.
+    const trace = { used: [] as string[], sources: [], factsReturned: [] as any[], webSearches: 0 };
+    const tools: any = buildTools({ guildId: RG, channelId: CH, refMap: new Map(), names: new Map(), webEnabled: false, canView: () => true, channelName: () => "general" }, trace as any);
+    const src = await tools.get_fact_source.execute({ fact_id: f.id }, {});
+    assert.ok(src.sources[0].added_by_hand && !src.sources[0].link, JSON.stringify(src));
+    assert.ok(buildProfilePrompt(RG, SERGEJ).prompt.includes("rage quits every ranked game (added by hand"));
+  });
+
+  test("hand-edited profiles are locked until an explicit refresh, which builds on them", async () => {
+    let calls = 0;
+    let lastPrompt = "";
+    _setProfileGeneratorForTests(async (prompt) => {
+      if (prompt.includes(`[user ${SERGEJ}]`)) calls++;
+      lastPrompt = prompt;
+      return "Regenerated profile text.";
+    });
+    const saved = setManualProfile(RG, SERGEJ, "Sergej is the group's designated Yasuo enjoyer and hardstuck in silver.");
+    assert.ok(saved.manual && getProfile(RG, SERGEJ)!.manual);
+    markProfileDirty(RG, SERGEJ);
+    getV2DBForTests().prepare("UPDATE user_profiles SET updated_at = 0 WHERE guild_id = ?").run(RG);
+    await runProfileRefreshOnce();
+    assert.strictEqual(getProfile(RG, SERGEJ)!.profile, saved.profile, "background refresh leaves it alone");
+    assert.strictEqual(calls, 0);
+    const fresh = await regenerateProfile(RG, SERGEJ);
+    assert.ok(lastPrompt.includes('hand_edited="true"') && lastPrompt.includes("designated Yasuo enjoyer"), lastPrompt.slice(0, 400));
+    assert.ok(fresh && !fresh.manual && !getProfile(RG, SERGEJ)!.manual);
+  });
+
+  test("profile edit by DM: next DM replaces it, cancel keeps it, code blocks are unwrapped", async () => {
+    const replies: string[] = [];
+    const dm = (author: string, content: string): any => ({ guild: null, author: { id: author, bot: false }, content, reply: async (t: string) => void replies.push(t) });
+    assert.strictEqual(await handleProfileEditDM(dm(DANIEL, "hi")), false, "no pending edit: ignored");
+
+    startProfileEdit(DANIEL, { guildId: RG, userId: LUKAS, userName: "Lukas" });
+    assert.strictEqual(await handleProfileEditDM(dm(DANIEL, "cancel")), true);
+    assert.strictEqual(getProfile(RG, LUKAS), null);
+
+    startProfileEdit(DANIEL, { guildId: RG, userId: LUKAS, userName: "Lukas" });
+    assert.ok(await handleProfileEditDM(dm(DANIEL, "too short")));
+    assert.ok(pendingProfileEdit(DANIEL), "a too-short reply keeps the edit open");
+    assert.ok(await handleProfileEditDM(dm(DANIEL, "```\nJason claims Diamond 2 but plays like he's still in gold.\n```")));
+    const p = getProfile(RG, LUKAS)!;
+    assert.strictEqual(p.profile, "Jason claims Diamond 2 but plays like he's still in gold.");
+    assert.ok(p.manual);
+    assert.strictEqual(pendingProfileEdit(DANIEL), null);
+
+    startProfileEdit(DANIEL, { guildId: RG, userId: LUKAS, userName: "Lukas" }, Date.now() - 60 * 60_000);
+    assert.strictEqual(await handleProfileEditDM(dm(DANIEL, "a late reply that should be ignored entirely")), false, "expired");
+    const parts = splitForDiscord("word ".repeat(700).trim());
+    assert.ok(parts.length === 2 && parts.every((s) => s.length <= 1900), parts.map((s) => s.length).join(","));
+    assert.strictEqual(parts.join(" "), "word ".repeat(700).trim());
   });
 
   await chain;

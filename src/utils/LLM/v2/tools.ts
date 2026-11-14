@@ -277,13 +277,17 @@ export function buildTools(ctx: ToolContext, trace: ToolTrace): ToolSet {
         return {
           fact: `${ctx.names.get(fact.subjectUserId) ?? `user ${fact.subjectUserId}`}: ${fact.predicate.replace(/_/g, " ")}: ${fact.value}`,
           sources: sources.length
-            ? sources.map((src) => ({
+            ? sources.map((src) =>
+                src.messageId.startsWith("manual:")
+                  ? { added_by_hand: `${src.quote} (user ${src.authorId}); there is no Discord message to link` }
+                  : {
                 link: src.link ?? jumpLink(ctx.guildId, ctx.channelId, src.messageId),
                 author: src.authorName ?? `user ${src.authorId}`,
                 channel: src.channelId ? `#${ctx.channelName(src.channelId)}` : "unknown",
                 quote: src.quote,
                 full_message: src.content ? src.content.slice(0, 400) : "(message no longer stored)",
-              }))
+                  }
+              )
             : "no source message you can show here (deleted, or in a channel the requester can't see)",
         };
       },

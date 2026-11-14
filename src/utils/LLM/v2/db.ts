@@ -215,6 +215,11 @@ const MIGRATIONS: Migration[] = [
     version: 9,
     sql: `UPDATE facts SET expires_at = NULL WHERE kind != 'temporary_state';`,
   },
+  {
+    // Hand-edited profiles (/memory editprofile) are locked against automatic rewrites.
+    version: 10,
+    sql: `ALTER TABLE user_profiles ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export function getV2DB(): Database.Database {

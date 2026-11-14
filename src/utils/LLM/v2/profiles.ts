@@ -11,7 +11,7 @@ import { getAISettings, MODELS, userAllowsLearning } from "./settings";
  * background whenever their facts change.
  */
 
-export type UserProfile = { guildId: string; userId: string; profile: string; updatedAt: number; factCount: number };
+export type UserProfile = { guildId: string; userId: string; profile: string; updatedAt: number; factCount: number; manual: boolean };
 
 const REFRESH_INTERVAL_MS = 2 * 60_000;
 /** Don't regenerate the same person more often than this. */
@@ -19,6 +19,8 @@ const MIN_REGEN_GAP_MS = 30 * 60_000;
 const PER_RUN = 8;
 const SAMPLE_MESSAGES = 150;
 const MAX_PROFILE_CHARS = 2400;
+/** Hand-written profiles may be a bit longer (a Nitro DM can hold 4000 characters). */
+const MAX_MANUAL_PROFILE_CHARS = 4000;
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
@@ -31,12 +33,32 @@ type Row = {
   updated_at: number;
   dirty: number;
   dirty_since: number | null;
+  manual: number;
 };
 
 export function getProfile(guildId: string, userId: string): UserProfile | null {
   const r = getV2DB().prepare("SELECT * FROM user_profiles WHERE guild_id = ? AND user_id = ?").get(guildId, userId) as Row | undefined;
   if (!r || !r.profile) return null;
-  return { guildId, userId, profile: r.profile, updatedAt: r.updated_at, factCount: r.fact_count };
+  return { guildId, userId, profile: r.profile, updatedAt: r.updated_at, factCount: r.fact_count, manual: r.manual === 1 };
+}
+
+/**
+ * Replace a profile with hand-written text (/memory editprofile). It stays locked against
+ * automatic rewrites until someone runs /memory profile refresh:true, which uses it as the base.
+ */
+export function setManualProfile(guildId: string, userId: string, text: string): UserProfile {
+  const now = Date.now();
+  const factCount = getActiveFacts(guildId, [userId]).length;
+  const profile = text.trim().slice(0, MAX_MANUAL_PROFILE_CHARS);
+  getV2DB()
+    .prepare(
+      `INSERT INTO user_profiles (guild_id, user_id, profile, fact_count, updated_at, dirty, dirty_since, manual)
+       VALUES (?, ?, ?, ?, ?, 0, NULL, 1)
+       ON CONFLICT(guild_id, user_id) DO UPDATE SET profile = excluded.profile, fact_count = excluded.fact_count,
+         updated_at = excluded.updated_at, dirty = 0, dirty_since = NULL, manual = 1`
+    )
+    .run(guildId, userId, profile, factCount, now);
+  return { guildId, userId, profile, updatedAt: now, factCount, manual: true };
 }
 
 export function deleteProfile(guildId: string, userId: string): void {
@@ -107,7 +129,12 @@ export function buildProfilePrompt(guildId: string, userId: string): { prompt: s
   const name = messages.length ? messages[messages.length - 1].author_name : "unknown";
 
   const factLines = facts.map((f) => {
-    const src = f.kind === "third_party_claim" ? `according to ${f.reporters.map((r) => `user ${r}`).join(", ")}` : "said by themself";
+    const src =
+      f.kind === "third_party_claim"
+        ? `according to ${f.reporters.map((r) => `user ${r}`).join(", ")}`
+        : f.kind === "curated_seed"
+        ? "added by hand, treat as true"
+        : "said by themself";
     return `- ${f.predicate.replace(/_/g, " ")}: ${f.value} (${src})`;
   });
   const msgLines = messages.map((m) => {
@@ -125,7 +152,11 @@ export function buildProfilePrompt(guildId: string, userId: string): { prompt: s
 
   const prompt = [
     `Person: ${name} [user ${userId}]`,
-    previous ? `\n<previous_profile>\n${previous.profile}\n</previous_profile>\nUpdate it with the new information; drop things that are no longer true.` : "",
+    previous
+      ? previous.manual
+        ? `\n<previous_profile hand_edited="true">\n${previous.profile}\n</previous_profile>\nThe server owner wrote or corrected this profile by hand. Keep its content, wording and judgements; only add clearly new information.`
+        : `\n<previous_profile>\n${previous.profile}\n</previous_profile>\nUpdate it with the new information; drop things that are no longer true.`
+      : "",
     `\n<facts>\n${factLines.join("\n") || "(none)"}\n</facts>`,
     `\n<their_recent_messages>\n${msgLines.join("\n") || "(none)"}\n</their_recent_messages>`,
   ].join("\n");
@@ -148,13 +179,13 @@ export async function regenerateProfile(guildId: string, userId: string): Promis
   const now = Date.now();
   getV2DB()
     .prepare(
-      `INSERT INTO user_profiles (guild_id, user_id, profile, fact_count, updated_at, dirty, dirty_since)
-       VALUES (?, ?, ?, ?, ?, 0, NULL)
+      `INSERT INTO user_profiles (guild_id, user_id, profile, fact_count, updated_at, dirty, dirty_since, manual)
+       VALUES (?, ?, ?, ?, ?, 0, NULL, 0)
        ON CONFLICT(guild_id, user_id) DO UPDATE SET profile = excluded.profile, fact_count = excluded.fact_count,
-         updated_at = excluded.updated_at, dirty = 0, dirty_since = NULL`
+         updated_at = excluded.updated_at, dirty = 0, dirty_since = NULL, manual = 0`
     )
     .run(guildId, userId, text, factCount, now);
-  return { guildId, userId, profile: text, updatedAt: now, factCount };
+  return { guildId, userId, profile: text, updatedAt: now, factCount, manual: false };
 }
 
 /** One background pass: pick up changed facts, then refresh a few stale profiles. */
@@ -166,7 +197,7 @@ export async function runProfileRefreshOnce(): Promise<number> {
     for (const { guildId, userId } of drainTouchedSubjects()) markProfileDirty(guildId, userId);
     const due = getV2DB()
       .prepare(
-        `SELECT guild_id, user_id FROM user_profiles WHERE dirty = 1 AND updated_at <= ?
+        `SELECT guild_id, user_id FROM user_profiles WHERE dirty = 1 AND manual = 0 AND updated_at <= ?
          ORDER BY dirty_since ASC LIMIT ?`
       )
       .all(Date.now() - MIN_REGEN_GAP_MS, PER_RUN) as { guild_id: string; user_id: string }[];

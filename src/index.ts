@@ -1,4 +1,4 @@
-import DiscordJS, { GatewayIntentBits, Interaction, Message } from 'discord.js';
+import DiscordJS, { GatewayIntentBits, Interaction, Message, Partials } from 'discord.js';
 import dotenv from 'dotenv';
 
 import { CommandManagerInterface } from './utils/Commands/CommandManagerInterface';
@@ -20,6 +20,7 @@ import { backfill, TARGET_GUILD_ID } from './utils/LLM/vectorDB/ingest';
 import { queueMessage, startQueueProcessor } from './utils/LLM/vectorDB/queue';
 import { initPricing } from './utils/LLM/utils/api/openrouter';
 import { initMemoryV2, observeDelete, observeMessage, observeUpdate, routeMention, usesMemoryEngine } from './utils/LLM/v2/router';
+import { handleProfileEditDM } from './utils/LLM/v2/profileEdit';
 
 dotenv.config({ path: './secrets/.env' });
 
@@ -53,7 +54,9 @@ export const client = new DiscordJS.Client({
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    // DMs arrive in uncached channels after a restart; needed for /memory editprofile replies.
+    partials: [Partials.Channel]
 });
 
 export var commandManager: CommandManagerInterface;
@@ -143,7 +146,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.guild == null) return;
+    if (message.guild == null) {
+        // DMs: only replies to /memory editprofile are handled.
+        await handleProfileEditDM(message).catch((error) => console.error('[MemoryV2] profile edit DM error:', error));
+        return;
+    }
     if (message.author.bot) return;
 
     // Memory engine: persist immediately (synchronously) so rapid follow-ups see it.

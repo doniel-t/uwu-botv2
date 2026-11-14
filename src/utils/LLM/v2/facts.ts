@@ -177,6 +177,66 @@ export function forgetFact(guildId: string, factId: number): boolean {
   return getV2DB().prepare("DELETE FROM facts WHERE guild_id = ? AND id = ?").run(guildId, factId).changes > 0;
 }
 
+/** Default predicate per category for hand-added facts (keeps them groupable with learned ones). */
+const MANUAL_PREDICATES: Record<string, string> = {
+  identity: "identity",
+  work_or_school: "occupation",
+  location: "lives_in",
+  game: "plays_game",
+  skill_or_rank: "rank",
+  hobby: "hobby",
+  taste: "likes",
+  habit: "habit",
+  personality: "trait",
+  possession: "owns",
+  relationship: "relationship",
+  reputation: "known_for",
+};
+
+/**
+ * A fact added by hand (/memory add). Stored as a curated fact: never expires, is never
+ * superseded or retracted by learning, and its "source" names who added it.
+ */
+export function addManualFact(
+  guildId: string,
+  input: { subjectUserId: string; category: string; value: string; predicate?: string | null; addedBy: string; addedByName?: string }
+): { ok: true; fact: Fact; existed: boolean } | { ok: false; reason: string } {
+  const value = input.value.trim().replace(/\s+/g, " ").slice(0, 200);
+  if (value.length < 2) return { ok: false, reason: "The fact is empty." };
+  if (!(FACT_CATEGORIES as readonly string[]).includes(input.category)) return { ok: false, reason: `Unknown category "${input.category}".` };
+  const predicate =
+    (input.predicate ?? "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || MANUAL_PREDICATES[input.category];
+  const db = getV2DB();
+  const now = Date.now();
+  const key = `${predicate}:${normalizeQuote(value)}`;
+  const existing = db
+    .prepare("SELECT id FROM facts WHERE guild_id = ? AND subject_user_id = ? AND normalized_key = ? AND status = 'active'")
+    .get(guildId, input.subjectUserId, key) as { id: number } | undefined;
+  let factId: number;
+  db.transaction(() => {
+    if (existing) {
+      factId = existing.id;
+      db.prepare("UPDATE facts SET kind = 'curated_seed', source_kind = 'manual', expires_at = NULL, last_confirmed_at = ? WHERE id = ?").run(now, factId);
+    } else {
+      factId = Number(
+        db
+          .prepare(
+            `INSERT INTO facts (guild_id, subject_user_id, predicate, value, normalized_key, multi_valued, kind, status,
+               source_kind, first_seen_at, last_confirmed_at, expires_at, supersedes_fact_id, extractor_version, category)
+             VALUES (?, ?, ?, ?, ?, 1, 'curated_seed', 'active', 'manual', ?, ?, NULL, NULL, 'manual', ?)`
+          )
+          .run(guildId, input.subjectUserId, predicate, value, key, now, now, input.category).lastInsertRowid
+      );
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO fact_evidence (fact_id, guild_id, message_id, message_revision, reporter_user_id, evidence_quote, evidence_type)
+       VALUES (?, ?, ?, 0, ?, ?, 'manual')`
+    ).run(factId!, guildId, `manual:${now}`, input.addedBy, `Added by hand via /memory add${input.addedByName ? ` by ${input.addedByName}` : ""}`);
+  })();
+  touchedSubjects.add(`${guildId}:${input.subjectUserId}`);
+  return { ok: true, fact: getFact(guildId, factId!)!, existed: !!existing };
+}
+
 export function forgetAllAbout(guildId: string, userId: string): number {
   return getV2DB().prepare("DELETE FROM facts WHERE guild_id = ? AND subject_user_id = ?").run(guildId, userId).changes;
 }
