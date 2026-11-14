@@ -371,7 +371,32 @@ export const FACT_CATEGORIES = [
 ] as const;
 
 /** Categories where a "medium" confidence self-report is still kept. */
-const MEDIUM_OK_CATEGORIES = new Set(["game", "skill_or_rank", "hobby", "taste", "possession"]);
+const MEDIUM_OK_CATEGORIES = new Set(["game", "skill_or_rank", "hobby", "taste"]);
+
+/** Health, medication, diagnoses and deaths are never learned (no roast material, too personal). */
+const SENSITIVE_RE =
+  /(^|[^\p{L}])(autis|adhd|asperger|depress|anxiety|panic attack|diagnos|medicat|meds\b|melatonin|antidepress|therap|disease|illness|cancer|tumou?r|disorder|suicid|self.?harm|died|death|deceased|funeral|passed away|pregnan|miscarr)/iu;
+/** Street addresses and phone numbers must never be stored as proof quotes. */
+const ADDRESS_RE = /([\p{L}-]+(stra(ß|ss)e|staße|str\.|weg|allee|gasse|platz|street|st\.|road|avenue)\s*\d+)|\b\d{5}\s+\p{Lu}\p{L}+/iu;
+export function containsContactDetails(text: string): boolean {
+  if (ADDRESS_RE.test(text)) return true;
+  // phone numbers: a run of digits/separators with at least 9 digits (scores like "13-11 13-9" don't count)
+  const re = /\+?\d[\d\s/()-]{7,}\d/g;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) if ((m[0].match(/\d/g) ?? []).length >= 9) return true;
+  return false;
+}
+/** Categories where SENSITIVE_RE applies (tastes and games may legitimately be "Death Note"). */
+const PERSONAL_CATEGORIES = new Set(["identity", "habit", "personality", "possession", "relationship", "reputation", "work_or_school", "location"]);
+
+/** A location fact needs its place name in the quote or the message it relies on. */
+function locationSupported(value: string, texts: string[]): boolean {
+  const norm = (t: string) => t.split(/\s+/).map(normalizeWord).join(" ");
+  const haystack = norm(texts.join(" "));
+  const words = norm(value)
+    .split(" ")
+    .filter((w) => w.length >= 4 && !["lives", "near", "from", "with", "city", "area", "town", "village", "outside", "close"].includes(w));
+  return words.length > 0 && words.some((w) => haystack.includes(w));
+}
 
 /** Plans, intentions and time-bound statements are never facts, whatever the model says. */
 const TEMPORAL_VALUE_RE =
@@ -461,8 +486,9 @@ How to read the log:
 - "(reply to m4 by Name)" means that line is a Discord reply to m4. Read every [EXTRACT] message in its conversation: which question it answers, what it agrees or disagrees with, who it is aimed at.
 - A short reply can carry a fact through what it replies to: B "I sleep at 4am every day" -> A replies "same" means A sleeps very late. Then quote the [EXTRACT] message and set context_ref to the message that gives it meaning.
 - Use the reactions around a message: if people laugh, mock it or it's obvious bait, it is a joke, not a fact.
-- confidence: "high" when it is clearly stated and lasting. "medium" when it's very likely true but said casually or in passing (e.g. "play league ... then play cs, bottom frag" -> plays League and CS). "low" when unsure. Be honest: low facts are dropped, and medium is only kept for harmless self-reported things (games, ranks, hobbies, taste, possessions).
+- confidence: "high" when it is clearly stated and lasting. "medium" when it's very likely true but said casually or in passing (e.g. "play league ... then play cs, bottom frag" -> plays League and CS). "low" when unsure. Be honest: low facts are dropped, and medium is only kept for harmless self-reported things (games, ranks, hobbies, taste).
 - Casual mentions count: people rarely announce facts, they reveal them while talking ("my car", "ich hab X", "after my shift").
+- medium is NOT enough for possessions: only extract things someone owns when it clearly says something about them (their car, setup, pet, collection).
 
 The bar is high: would this still be true and worth knowing about them in a month? If not, skip it.
 NEVER extract:
@@ -470,6 +496,9 @@ NEVER extract:
 - anything temporary or dated: moods, being sick, today/this week/currently, where they are right now, schedules, events, deadlines
 - one-off actions and trivia ("watched a video", "had pizza", "considered writing a plugin")
 - passing opinions about one thing, questions, greetings, anything about the bot
+- everyday stuff that says nothing about the person: owning a PC/phone/laptop, subscriptions, kitchen or household items, liking "this song"/"the linked video"
+- health, medication, diagnoses, therapy, pregnancy, deaths in the family (even as jokes)
+- home addresses, phone numbers or other contact details; for location use only the city/region and only if the place is named
 Values never contain dates or relative times. Write the lasting version ("plays bass", "mains Yasuo", "hardstuck silver").
 
 classification:
@@ -576,6 +605,11 @@ export function validateCandidates(
 
     const ctxMsg = c.context_ref ? refToMessage.get(c.context_ref) : undefined;
     const contextMessage = ctxMsg && ctxMsg.messageId !== message.messageId && !ctxMsg.isOwnBot ? ctxMsg : undefined;
+
+    // Never: health/death topics, contact details in the proof, or a place that isn't actually named.
+    if (PERSONAL_CATEGORIES.has(c.category) && SENSITIVE_RE.test(`${predicate.replace(/_/g, " ")} ${value}`)) continue;
+    if (containsContactDetails(c.evidence_quote) || (contextMessage && containsContactDetails(contextMessage.content))) continue;
+    if (c.category === "location" && !locationSupported(value, [c.evidence_quote, message.content, contextMessage?.content ?? ""])) continue;
 
     out.push({ ...c, predicate, value, supersedes_fact_id: supersedes, message, kind, contextMessage });
   }
